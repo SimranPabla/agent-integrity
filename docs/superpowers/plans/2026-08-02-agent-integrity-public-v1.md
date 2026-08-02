@@ -167,11 +167,11 @@
 - Test: `packages/sdk/tests/session.test.ts`
 - Test: `packages/sdk/tests/release.test.ts`
 
-- [ ] Write failing tests for automatic envelope construction and exact-response
+- [x] Write failing tests for automatic envelope construction and exact-response
   release on pass only.
-- [ ] Implement the minimal agent-facing API.
-- [ ] Ensure review, block, mutation, and checker error release nothing.
-- [ ] Run tests and commit.
+- [x] Implement the minimal agent-facing API.
+- [x] Ensure review, block, mutation, and checker error release nothing.
+- [x] Run tests and commit.
 
 ### Task 12: CLI
 
