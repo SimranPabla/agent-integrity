@@ -31,3 +31,9 @@ Edit [index.mjs](index.mjs) and test:
 - changing a source digest instead of response content.
 
 Every final transformation must occur before verification, or the transformed result must be verified as a new envelope with a new run identifier.
+
+## Safe remediation
+
+The release guard reports `release.verification_mismatch` when the release envelope no longer matches the verified digest. Discard the earlier verification/receipt, rebuild offsets and digests for the intended final bytes, then verify and issue a new receipt.
+
+Do not edit envelope digests or signed receipt fields. That is tampering, not remediation.

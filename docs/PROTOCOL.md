@@ -1,6 +1,6 @@
 # Protocol Reference: `1-alpha`
 
-The Agent Integrity protocol is the language-neutral boundary between agent integrations and the deterministic verifier. The canonical interchange format is JSON.
+The Agent Integrity protocol is the JSON interchange boundary between agent integrations and the deterministic verifier. TypeScript is the reference implementation; other languages can implement the schemas and conformance fixtures experimentally.
 
 ## Stability
 
@@ -140,7 +140,7 @@ Policy is normalized into the protocol representation before hashing. Raw YAML f
 
 ## Conformance
 
-Fixtures in `tests/conformance/fixtures` define language-neutral requests, expected outcomes, and finding codes. A compatible implementation should:
+Fixtures in `tests/conformance/fixtures` define JSON requests, expected outcomes, and finding codes. Another implementation should:
 
 1. load every fixture without framework-specific preprocessing;
 2. reproduce the expected status;

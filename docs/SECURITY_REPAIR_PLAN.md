@@ -90,12 +90,12 @@
 
 **Files:** README, all docs, package READMEs, examples, JSON Schema, changelog/compatibility/security/governance files
 
-- [ ] Rewrite guarantees from tested invariants and state semantic non-goals beside `PASS`.
-- [ ] Add a copy-paste 15-minute tutorial and end-to-end trusted-host example.
-- [ ] Publish tested compatibility matrix, protocol/package matrix, migration rules, and safe baseline policy.
-- [ ] Expand negative examples with finding codes and safe remediation.
-- [ ] Add package metadata and verify every `npm pack --dry-run` payload.
-- [ ] Add a pre-release placeholder/private-path scanner.
+- [x] Rewrite guarantees from tested invariants and state semantic non-goals beside `PASS`.
+- [x] Add a copy-paste 15-minute tutorial and end-to-end trusted-host example.
+- [x] Publish tested compatibility matrix, protocol/package matrix, migration rules, and safe baseline policy.
+- [x] Expand negative examples with finding codes and safe remediation.
+- [x] Add package metadata and verify every `npm pack --dry-run` payload.
+- [x] Add a pre-release placeholder/private-path scanner.
 - [ ] Run docs/examples/package checks and commit.
 
 ### Task 9: Final audit

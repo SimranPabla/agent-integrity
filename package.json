@@ -1,7 +1,18 @@
 {
   "name": "agent-integrity",
   "version": "0.1.0-alpha.0",
+  "description": "Deterministic integrity verification and release controls for AI-agent responses.",
   "license": "Apache-2.0",
+  "author": "Simranjit Singh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/<YOUR-GITHUB-ORG>/agent-integrity.git"
+  },
+  "homepage": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity#readme",
+  "bugs": {
+    "url": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity/issues"
+  },
+  "keywords": ["ai-agents", "integrity", "verification", "provenance", "security"],
   "type": "module",
   "workspaces": [
     "packages/*"
@@ -10,7 +21,9 @@
     "build": "tsc -b packages/protocol packages/core packages/sdk packages/cli",
     "typecheck": "tsc -b packages/protocol packages/core packages/sdk packages/cli --pretty false",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm test && npm run build",
+    "release:check": "node scripts/pre-release-check.mjs",
+    "pack:check": "node scripts/check-packages.mjs"
   },
   "engines": {
     "node": ">=22"

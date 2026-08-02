@@ -29,3 +29,9 @@ Open `integrity/decisions.yaml` and follow the decision revisions in order. `req
 - Change the replacement identifier to a missing decision.
 
 Decision validation proves lifecycle consistency, not whether the replacement decision is strategically correct.
+
+## Safe remediation
+
+The expected finding code is `decision.superseded`. Update the claim to the reviewed active replacement and retain the complete lifecycle in the trusted registry snapshot. Historical prose may describe the old decision, but a current claim must not rely on it as active authority.
+
+Do not omit a real decision dependency, erase registry history, or relabel an inactive decision without a reviewed event. The engine cannot infer undeclared semantic dependencies.

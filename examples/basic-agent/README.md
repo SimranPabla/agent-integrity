@@ -49,6 +49,8 @@ Do not stream the raw model draft to the user. Buffer it until verification fini
 - Change the response after verification; the release guard refuses it.
 - Reference a rejected decision; verification blocks the run.
 
-## Production note
+## Experimental deployment note
 
 This example lets the application populate every object directly. For stronger evidence completeness, source records should come from host-observed retrieval events, not solely from the model’s self-report. See [Limitations](../../docs/LIMITATIONS.md#omitted-evidence).
+
+`PASS` confirms the deterministic envelope and trusted-byte checks. It does not determine whether the cited text actually proves the prose, whether the model omitted contrary evidence, or whether an undeclared decision dependency exists.

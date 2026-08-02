@@ -2,6 +2,8 @@
 
 Contributions are welcome when they strengthen deterministic response integrity, improve integration ergonomics, or clarify the guarantees and limits of the project.
 
+By participating, you agree to follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Protocol and compatibility changes must update the schemas, conformance fixtures, changelog, and migration guidance.
+
 ## Before opening a pull request
 
 For bug fixes, open an issue describing the observed behavior, expected behavior, affected version, and a minimal synthetic reproduction. For security issues, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
@@ -36,6 +38,7 @@ Replace the placeholder owner after the public repository URL is finalized.
 
    ```bash
    npm run verify
+   npm run pack:check
    npm audit --audit-level=high
    ```
 

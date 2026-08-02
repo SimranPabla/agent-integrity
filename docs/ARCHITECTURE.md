@@ -9,7 +9,7 @@ The architecture is designed to provide:
 - deterministic results from identical inputs;
 - complete-response binding rather than spot-checking selected claims;
 - explicit decision lifecycle handling;
-- stable, language-neutral interchange through JSON;
+- a versioned JSON interchange format that other languages can implement experimentally;
 - local-first verification without an LLM or hosted service;
 - fail-closed behavior when input or checker state is invalid;
 - integration with an agent without requiring a human-written manifest per run.

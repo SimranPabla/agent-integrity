@@ -1,10 +1,10 @@
 # Agent Integrity
 
-Agent Integrity is an agent-first, deterministic verification engine for developers building AI agents. It validates an exact response against the sources, current decision snapshot, claims, evidence mappings, and decision references declared for that run—and refuses to release a changed or structurally invalid response.
+Agent Integrity is an agent-first, deterministic verification engine for developers building AI agents. It validates an exact response and application-supplied claim/evidence envelope against trusted source bytes and a trusted decision snapshot—and refuses to release changed or structurally invalid bytes.
 
 The agent prepares a complete response envelope. Agent Integrity, which does not call an LLM, independently calculates one outcome:
 
-- `PASS`: deterministic checks succeeded and the exact checked response may be released.
+- `PASS`: the submitted envelope satisfied the configured deterministic checks and the exact checked response may be released. It does not prove semantic truth, evidence completeness, or that the application classified every dependency correctly.
 - `REVIEW`: the response is held because human judgment is needed.
 - `BLOCKED`: the response is held because a definite integrity violation or checker failure occurred.
 
@@ -40,7 +40,7 @@ This is alpha software. Protocols and APIs may change before `1.0.0`. Receipt `2
 - TypeScript 5.8 or newer when embedding the SDK in a TypeScript project
 - A server-side Node.js runtime; browsers, edge runtimes, Deno, and Bun are not yet supported or tested
 
-The engine is model- and provider-independent. It can sit behind any agent that can construct the documented JSON envelope or call the TypeScript SDK, including custom agents built with OpenAI, Anthropic, Google, open-source models, LangChain, Mastra, or an in-house framework. These are compatibility categories, not bundled integrations. Agent Integrity does not call those providers and does not require their SDKs.
+The engine is provider-independent by design. No named model provider or agent framework is bundled or tested in `0.1.0-alpha.0`. Any host that can construct the documented JSON envelope or call the TypeScript SDK may integrate experimentally. See the tested [compatibility matrix](docs/COMPATIBILITY.md).
 
 ## Install from source
 
@@ -104,7 +104,7 @@ npm install --global @agent-integrity/cli
 
 Until then, import from the built workspace packages or use the JSON CLI from a source checkout.
 
-## Five-minute SDK integration
+## SDK integration outline
 
 An integration normally performs five steps:
 
@@ -159,7 +159,7 @@ if (release.status === "PASS") {
 }
 ```
 
-The complete, runnable version is in [examples/basic-agent](examples/basic-agent/README.md). See the [Integration Guide](docs/INTEGRATION_GUIDE.md) for collection boundaries, lifecycle guidance, and error handling.
+The snippet above is an architectural outline, not copy-paste code. Follow the complete [15-minute tutorial](docs/TUTORIAL.md) or run [examples/basic-agent](examples/basic-agent/README.md). See the [Integration Guide](docs/INTEGRATION_GUIDE.md) for collection boundaries, receipt signing, lifecycle guidance, and error handling.
 
 ## CLI
 
@@ -176,7 +176,7 @@ Commands:
 - `recheck`: compare a receipt with the envelope and freshly recollected source bytes.
 - `inspect-receipt`: validate and summarize a receipt without exposing response content.
 
-Stable exit codes:
+Current alpha exit codes:
 
 - `0`: command succeeded or verification returned `PASS`
 - `2`: verification returned `REVIEW`
@@ -194,7 +194,7 @@ See [CLI usage in the Integration Guide](docs/INTEGRATION_GUIDE.md#using-the-cli
 
 ## Repository packages
 
-- `@agent-integrity/protocol`: versioned, language-neutral data structures.
+- `@agent-integrity/protocol`: versioned TypeScript data structures and a JSON interchange format.
 - `@agent-integrity/core`: deterministic validation, canonical hashing, outcomes, receipts, and rechecking.
 - `@agent-integrity/sdk`: run-envelope construction and exact-response release guard.
 - `@agent-integrity/cli`: JSON stdin/stdout interoperability for any language.
@@ -203,12 +203,19 @@ See [CLI usage in the Integration Guide](docs/INTEGRATION_GUIDE.md#using-the-cli
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Integration Guide](docs/INTEGRATION_GUIDE.md)
+- [15-minute tutorial](docs/TUTORIAL.md)
 - [Protocol reference](docs/PROTOCOL.md)
+- [JSON Schemas](schemas/)
+- [Compatibility](docs/COMPATIBILITY.md)
+- [Migration policy](docs/MIGRATING.md)
+- [Safe baseline policy](docs/SAFE_BASELINE_POLICY.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Limitations](docs/LIMITATIONS.md)
 - [Examples](examples/README.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+- [Governance](GOVERNANCE.md)
 
 ## Development
 
@@ -220,7 +227,7 @@ npm run build
 npm run verify
 ```
 
-Tests include unit, adversarial, package-export, and language-neutral conformance fixtures. Every protocol change should add or update a fixture so another implementation can reproduce the outcome.
+Tests include unit, adversarial, package-export, and JSON conformance fixtures. Every protocol change should add or update a fixture so another implementation can reproduce the outcome.
 
 ## Security and license
 

@@ -234,7 +234,7 @@ For `BLOCKED`, fix the specific rule violation and create a fresh run identifier
 
 For checker errors, preserve only safe diagnostic metadata, fail closed, and investigate. Source or response contents should not be placed in general application logs.
 
-## Production checklist
+## Experimental deployment checklist
 
 - [ ] Project policy is reviewed and version-controlled.
 - [ ] Source roots are narrow and intentional.
