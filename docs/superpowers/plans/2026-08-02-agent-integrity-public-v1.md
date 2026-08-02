@@ -180,10 +180,10 @@
 - Create: `packages/cli/src/cli.ts`
 - Test: `packages/cli/tests/cli.test.ts`
 
-- [ ] Write failing tests for `validate-policy`, `verify`, `recheck`, and
+- [x] Write failing tests for `validate-policy`, `verify`, `recheck`, and
   `inspect-receipt` using JSON stdin/stdout.
-- [ ] Implement commands with stable exit codes and no sensitive source output.
-- [ ] Run tests and commit.
+- [x] Implement commands with stable exit codes and no sensitive source output.
+- [x] Run tests and commit.
 
 ### Task 13: Examples, conformance, and security docs
 

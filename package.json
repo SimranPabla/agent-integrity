@@ -7,8 +7,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/protocol packages/core packages/sdk",
-    "typecheck": "tsc -b packages/protocol packages/core packages/sdk --pretty false",
+    "build": "tsc -b packages/protocol packages/core packages/sdk packages/cli",
+    "typecheck": "tsc -b packages/protocol packages/core packages/sdk packages/cli --pretty false",
     "test": "vitest run",
     "verify": "npm run typecheck && npm test && npm run build"
   },

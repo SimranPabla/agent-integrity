@@ -1,0 +1,13 @@
+{
+  "name": "@agent-integrity/cli",
+  "version": "0.0.0-private",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "integrity": "./dist/cli.js"
+  },
+  "dependencies": {
+    "@agent-integrity/core": "0.0.0-private",
+    "@agent-integrity/protocol": "0.0.0-private"
+  }
+}
