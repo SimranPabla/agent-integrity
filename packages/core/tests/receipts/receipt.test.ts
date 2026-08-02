@@ -212,8 +212,32 @@ describe("signed alpha receipts", () => {
     const second = await createReceipt({ runId: "quota-two", path: join(directory, "two.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "source-two")), ...receiptSigningOptions, nonce: "quota-nonce-two", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
     const target = new FileReceiptStore(join(directory, "target"), { maxRecords: 1 });
     await target.issue(first);
+    const transactionsBefore = await readdir(join(directory, "target", "transactions"));
     await expect(target.issue(second)).rejects.toThrow(/record limit/u);
+    expect(await readdir(join(directory, "target", "transactions"))).toEqual(transactionsBefore);
     expect(() => new FileReceiptStore(join(directory, "bad"), { maxRecords: 0 })).toThrow(/maxRecords/u);
+  });
+
+  it("does not accumulate transaction intents across repeated quota-full attempts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-store-quota-growth-"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const seed = await createReceipt({ runId: "quota-seed", path: join(directory, "seed.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "seed-store")), ...receiptSigningOptions, nonce: "quota-seed-nonce", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const storePath = join(directory, "target");
+    const target = new FileReceiptStore(storePath, { maxRecords: 1 });
+    await target.issue(seed);
+    const stateCounts = async () => Object.fromEntries(await Promise.all(["transactions", "quota", "runs", "nonces", "issued", "cleanup", ".staging"].map(async (name) => [name, (await readdir(join(storePath, name))).length])));
+    const before = await stateCounts();
+    for (let index = 0; index < 12; index += 1) {
+      const candidate = {
+        ...seed,
+        runId: `failed-run-${index}`,
+        nonce: `failed-nonce-${index}`,
+        receiptDigest: createHash("sha256").update(`failed-receipt-${index}`).digest("hex"),
+      };
+      await expect(target.issue(candidate)).rejects.toThrow(/record limit/u);
+    }
+    expect(await stateCounts()).toEqual(before);
   });
 
   it("retains issuance when the receipt parent is a file", async () => {
@@ -278,11 +302,28 @@ describe("signed alpha receipts", () => {
 
     const orphanPath = join(directory, "quota-orphan");
     const quotaFault = new FileReceiptStore(orphanPath, { faultInjector: (point) => { if (point === "quota:after-publish") throw new Error("quota crash"); } });
-    await expect(quotaFault.issue(receipt)).rejects.toThrow(/quota crash/u);
+    await expect(quotaFault.issue(receipt)).rejects.toThrow(/quota reservation failed/u);
     const transactionName = createHash("sha256").update(receipt.receiptDigest).digest("hex");
     const transaction = JSON.parse(await readFile(join(orphanPath, "transactions", `${transactionName}.json`), "utf8"));
+    expect(await readdir(join(orphanPath, "quota"))).toHaveLength(1);
     await new FileReceiptStore(orphanPath).recoverInterruptedIssue(receipt, { offlineExclusive: true, transactionId: transaction.transactionId });
+    expect(await readdir(join(orphanPath, "transactions"))).toEqual([]);
+    expect(await readdir(join(orphanPath, "quota"))).toEqual([]);
     await expect(new FileReceiptStore(orphanPath, { maxRecords: 1 }).issue(receipt)).resolves.toBeUndefined();
+  });
+
+  it("removes pre-publication quota intent and permits an immediate retry", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-quota-prepublish-"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const receipt = await createReceipt({ runId: "quota-prepublish", path: join(directory, "seed.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "seed-store")), ...receiptSigningOptions, nonce: "quota-prepublish-nonce", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const targetPath = join(directory, "target");
+    const faulty = new FileReceiptStore(targetPath, { faultInjector: (point) => { if (point === "quota:after-temp-sync") throw new Error("quota prepublication crash"); } });
+    await expect(faulty.issue(receipt)).rejects.toThrow(/quota reservation failed/u);
+    expect(await readdir(join(targetPath, "transactions"))).toEqual([]);
+    expect(await readdir(join(targetPath, "quota"))).toEqual([]);
+    expect(await readdir(join(targetPath, "cleanup"))).toEqual([]);
+    await expect(new FileReceiptStore(targetPath).issue(receipt)).resolves.toBeUndefined();
   });
 
   it.each(["cleanup:after-ownership-read", "cleanup:after-removal"])("resumes durable cleanup journal after %s fault", async (faultPoint) => {

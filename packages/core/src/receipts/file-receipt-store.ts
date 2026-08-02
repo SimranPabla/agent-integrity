@@ -15,6 +15,21 @@ interface StoredReceipt {
   readonly cleanupPaths?: readonly string[];
 }
 
+class DuplicateStoreRecordError extends Error {}
+
+type QuotaReservationState = "not-reserved" | "possibly-reserved";
+
+class QuotaReservationError extends Error {
+  constructor(
+    message: string,
+    readonly reservationState: QuotaReservationState,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = "QuotaReservationError";
+  }
+}
+
 const SHA256 = /^[a-f0-9]{64}$/u;
 const DEFAULT_MAX_STATE_BYTES = 64 * 1024;
 const DEFAULT_MAX_DIRECTORY_BYTES = 4096;
@@ -76,7 +91,7 @@ export class FileReceiptStore {
       await this.options.faultInjector?.(`${point}:after-temp-sync`);
       try { await link(temporary, path); }
       catch (error) {
-        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new Error(duplicateMessage);
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") throw new DuplicateStoreRecordError(duplicateMessage);
         throw error;
       }
       await this.syncDirectory(dirname(path));
@@ -172,10 +187,18 @@ export class FileReceiptStore {
     for (let offset = 0; offset < this.#maxRecords; offset += 1) {
       const slot = (start + offset) % this.#maxRecords;
       const record = this.record(receipt, slot, transactionId);
-      try { await this.publishJson(this.path("quota", String(slot)), record, "quota", "quota slot exists"); return record; }
-      catch (error) { if (!/quota slot exists/u.test((error as Error).message)) throw error; }
+      try {
+        await this.publishJson(this.path("quota", String(slot)), record, "quota", "quota slot exists");
+        return record;
+      } catch (error) {
+        if (error instanceof DuplicateStoreRecordError) continue;
+        const reservationState: QuotaReservationState = typeof (error as { publishedPath?: unknown }).publishedPath === "string"
+          ? "possibly-reserved"
+          : "not-reserved";
+        throw new QuotaReservationError("quota reservation failed", reservationState, { cause: error });
+      }
     }
-    throw new Error(`receipt store has reached its ${this.#maxRecords} record limit`);
+    throw new QuotaReservationError(`receipt store has reached its ${this.#maxRecords} record limit`, "not-reserved");
   }
 
   private async quotaFor(transactionId: string): Promise<StoredReceipt | undefined> {
@@ -191,7 +214,7 @@ export class FileReceiptStore {
     const journal = { ...record, cleanupPaths: paths };
     try { await this.publishJson(journalPath, journal, "cleanup-journal", "cleanup journal exists"); }
     catch (error) {
-      if (!/cleanup journal exists/u.test((error as Error).message)) throw error;
+      if (!(error instanceof DuplicateStoreRecordError)) throw error;
       const existing = await this.readRecord(journalPath);
       if (existing.transactionId !== record.transactionId) throw new Error("cleanup journal ownership mismatch");
     }
@@ -215,7 +238,15 @@ export class FileReceiptStore {
       const intent = this.record(receipt, -1, transactionId);
       const transactionPath = this.path("transactions", receipt.receiptDigest);
       await this.publishJson(transactionPath, intent, "transaction", "issuance transaction already exists");
-      const record = await this.reserveQuota(receipt, transactionId);
+      let record: StoredReceipt;
+      try {
+        record = await this.reserveQuota(receipt, transactionId);
+      } catch (error) {
+        if (error instanceof QuotaReservationError && error.reservationState === "not-reserved") {
+          await this.cleanupOwned(intent, [transactionPath]);
+        }
+        throw error;
+      }
       try {
         await this.publishJson(this.path("runs", receipt.runId), record, "run", `run ID already exists: ${receipt.runId}`);
         await this.publishJson(this.path("nonces", receipt.nonce), record, "nonce", `receipt nonce already exists: ${receipt.nonce}`);
