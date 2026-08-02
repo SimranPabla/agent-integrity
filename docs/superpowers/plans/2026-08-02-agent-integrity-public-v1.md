@@ -123,11 +123,11 @@
 - Test: `packages/core/tests/claims/coverage.test.ts`
 - Test: `packages/core/tests/adversarial/hidden-contradiction.test.ts`
 
-- [ ] Write failing tests for uncovered substantive sections, missing support,
+- [x] Write failing tests for uncovered substantive sections, missing support,
   contextual-only evidence, and undisclosed contradictions.
-- [ ] Implement deterministic structural checks; semantic ambiguity emits
+- [x] Implement deterministic structural checks; semantic ambiguity emits
   review findings rather than blocking.
-- [ ] Run tests and commit.
+- [x] Run tests and commit.
 
 ### Task 9: Complete-envelope verification
 

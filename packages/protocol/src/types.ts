@@ -34,3 +34,31 @@ export interface DecisionState {
   readonly revision: number;
   readonly supersededBy?: string;
 }
+
+export type ClaimKind = "factual" | "recommendation" | "inference";
+export type EvidenceRole = "supporting" | "contradictory" | "contextual";
+export type EvidenceSupport = "direct" | "ambiguous";
+
+export interface ResponseSection {
+  readonly sectionId: string;
+  readonly substantive: boolean;
+}
+
+export interface EvidenceItem {
+  readonly evidenceId: string;
+  readonly sourceId: string;
+}
+
+export interface ClaimEvidence {
+  readonly evidenceId: string;
+  readonly role: EvidenceRole;
+  readonly support?: EvidenceSupport;
+  readonly disclosed?: boolean;
+}
+
+export interface IntegrityClaim {
+  readonly claimId: string;
+  readonly sectionId: string;
+  readonly kind: ClaimKind;
+  readonly evidence: readonly ClaimEvidence[];
+}
