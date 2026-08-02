@@ -113,4 +113,36 @@ describe("verifyTrustedEnvelope", () => {
     expect((await verifyTrustedEnvelope(outside, { projectRoot: test.projectRoot, allowedRoots: ["docs"] })).status)
       .toBe("BLOCKED");
   });
+
+  it("blocks a source larger than the configured per-source budget", async () => {
+    const test = await fixture();
+    const result = await verifyTrustedEnvelope(test.envelope, {
+      projectRoot: test.projectRoot,
+      allowedRoots: ["docs"],
+      maxSourceBytes: test.bytes.length - 1,
+    });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.some((finding) => finding.code === "source.collection_failed" && /limit/u.test(finding.message))).toBe(true);
+  });
+
+  it("blocks sources that cumulatively exceed the configured total budget", async () => {
+    const test = await fixture();
+    const second = Buffer.from("second source\n", "utf8");
+    await writeFile(join(test.projectRoot, "docs", "second.md"), second);
+    const envelope = {
+      ...test.envelope,
+      sources: [
+        ...test.envelope.sources,
+        { sourceId: "source-2", path: "docs/second.md", size: second.length, sha256: sha256(second) },
+      ],
+    };
+    const result = await verifyTrustedEnvelope(envelope, {
+      projectRoot: test.projectRoot,
+      allowedRoots: ["docs"],
+      maxSourceBytes: 1024,
+      maxTotalSourceBytes: test.bytes.length + second.length - 1,
+    });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.some((finding) => finding.code === "source.collection_failed" && /limit/u.test(finding.message))).toBe(true);
+  });
 });

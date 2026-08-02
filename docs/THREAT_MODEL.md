@@ -16,7 +16,7 @@ The primary security goal is: **an application must not release a response as ve
 - Decision lifecycle history
 - Claim-to-section and claim-to-evidence mappings
 - Verification outcome and finding codes
-- Receipt integrity, expiry, uniqueness, and replay state
+- Receipt self-digest, expiry, and local create-time uniqueness
 - Confidentiality of source and response content handled by the host
 
 ## Actors and trust assumptions
@@ -72,7 +72,7 @@ The model, formatter, application, or attacker may change the response after ver
 
 ### Receipt replay
 
-An old receipt may be presented for a new response or consumed more than allowed. Unique run identifiers, live-envelope rechecking, expiry, and replay state reject reuse.
+An old receipt may be presented for a new response. Recheck rejects a changed envelope and an expired receipt, while receipt creation refuses duplicate run IDs in one configured local registry. Protocol `1-alpha` has no atomic consumption state and does not prevent repeated checking or reuse of the same still-valid receipt. Durable replay protection is deferred to the signed, single-use receipt work.
 
 ### Receipt overwrite
 
@@ -131,8 +131,8 @@ Agent Integrity does not establish:
 4. Every response byte and section is covered.
 5. Source paths remain inside approved roots.
 6. Rejected and superseded decisions cannot become active implicitly.
-7. Receipt paths and run identifiers are unique.
-8. Recheck uses live bound content, not merely a stored digest supplied by the caller.
+7. Receipt creation refuses an existing path or run-ID marker in its configured local store; this is not durable replay prevention.
+8. Trusted receipt creation and recheck recollect declared source bytes; recheck does not consume the receipt.
 9. Draft content is not streamed before verification.
 10. A `PASS` is never described as proof of truth.
 
@@ -148,7 +148,7 @@ Every production integration should test:
 - rejected and superseded decisions;
 - duplicate decision revisions;
 - absolute path, traversal, and symlink escape;
-- receipt expiry and replay;
+- receipt expiry, changed-envelope reuse, and repeated-use behavior;
 - duplicate run identifier and overwrite attempt;
 - malformed policy and unsupported protocol version;
 - verifier exception and unavailable subprocess;

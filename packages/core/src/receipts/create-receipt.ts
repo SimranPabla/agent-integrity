@@ -8,7 +8,7 @@ import {
 } from "@agent-integrity/protocol";
 import { canonicalJson } from "../canonical-json.js";
 import { sha256Canonical } from "../hash.js";
-import { verifyEnvelope } from "../verify.js";
+import { verifyTrustedEnvelope, type TrustedVerificationContext } from "../verify-trusted.js";
 
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -17,6 +17,7 @@ export interface CreateReceiptOptions {
   readonly path: string;
   readonly envelope: IntegrityEnvelope;
   readonly verification: EnvelopeVerificationResult;
+  readonly context: TrustedVerificationContext;
   readonly createdAt: Date;
   readonly expiresAt: Date;
   readonly runRegistryDirectory?: string;
@@ -39,7 +40,7 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
     throw new Error("expiresAt must be later than createdAt");
   }
 
-  const liveVerification = verifyEnvelope(options.envelope);
+  const liveVerification = await verifyTrustedEnvelope(options.envelope, options.context);
   if (liveVerification.envelopeDigest === undefined) {
     throw new Error("cannot create a receipt for a malformed envelope");
   }

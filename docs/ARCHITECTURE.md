@@ -45,9 +45,9 @@ The JSON protocol is the compatibility boundary. Other languages do not need to 
 - checks complete, ordered UTF-8 byte coverage, section digests, and claim coverage for every section;
 - checks supporting, contradictory, and contextual evidence roles;
 - calculates `PASS`, `REVIEW`, or `BLOCKED`;
-- creates immutable alpha receipts;
-- rechecks live content against a receipt;
-- rejects mutation, expiry, replay, duplicate run identifiers, and overwrite attempts.
+- creates local create-once alpha receipt files after trusted source verification;
+- rechecks envelope digests, expiry, recorded outcomes, and freshly recollected declared sources;
+- refuses existing receipt paths and run-ID markers in the configured local store.
 
 The core does not call a model or assign semantic truth scores. If a conclusion needs semantic judgment, the policy should route it to `REVIEW`.
 

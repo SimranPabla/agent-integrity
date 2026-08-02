@@ -84,7 +84,7 @@ The status is one of:
 
 - `PASS`: all deterministic rules passed.
 - `REVIEW`: no hard violation was found, but configured uncertainty or contradiction requires a human.
-- `BLOCKED`: a definite rule violation, malformed bound input, replay, expiry, mutation, or checker failure occurred.
+- `BLOCKED`: a definite rule violation, malformed bound input, changed-envelope receipt use, expiry, mutation, or checker failure occurred.
 
 Outcome reduction is deterministic. `BLOCKED` outranks `REVIEW`, and `REVIEW` outranks `PASS`. Integrations must not downgrade a result.
 
@@ -98,18 +98,19 @@ New finding codes may be added during alpha. Changing the meaning of an existing
 
 An alpha receipt binds:
 
-- protocol and engine version;
+- protocol and receipt version;
 - unique run identifier;
 - complete envelope digest;
-- live bound-content digest;
 - outcome;
 - creation and expiry timestamps;
-- replay/consumption state where applicable;
+- unsigned signature-status marker;
 - receipt self-digest.
 
-Receipts are immutable. Writers must use create-new semantics and refuse overwrite. Recheck must reject changed receipt content, changed envelope content, expiry, duplicate run identifiers, and replay.
+Receipt creation requires trusted verification and recollects every declared source before writing. Writers use create-new local-file semantics and refuse an existing output path or run-ID marker in the configured local registry. Recheck compares the self-digest, envelope digest, recorded outcome, expiry, and freshly recollected source bytes.
 
-Because receipts are unsigned, they are suitable for mutation detection inside one trusted application boundary, not independent provenance verification.
+Protocol `1-alpha` does not include an engine version, a separate live-content digest, a nonce, an audience, or consumption state. Recheck does not consume a receipt and does not prevent the same unexpired receipt from being checked repeatedly. Local create-new files are not immutable against an actor who can delete or replace their storage.
+
+Because receipts are unsigned, they are mutation-check records inside one trusted application boundary, not independent provenance or replay-prevention artifacts.
 
 ## Strict YAML policy
 
@@ -132,7 +133,7 @@ Fixtures in `tests/conformance/fixtures` define language-neutral requests, expec
 3. reproduce required finding codes;
 4. reproduce canonical digests where the fixture declares them;
 5. reject malformed and unsupported protocol versions;
-6. pass mutation and replay cases.
+6. pass mutation, expiry, and changed-envelope receipt cases.
 
 Run the TypeScript conformance suite:
 

@@ -28,6 +28,7 @@ export async function collectSourceBytes(options: {
   readonly projectRoot: string;
   readonly allowedRoots: readonly string[];
   readonly sourcePath: string;
+  readonly maxBytes?: number;
 }): Promise<CollectedSourceBytes> {
   const resolved = await resolveAllowedSourcePath(options);
   const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
@@ -35,7 +36,13 @@ export async function collectSourceBytes(options: {
   try {
     const before = await handle.stat();
     if (!before.isFile()) throw new Error("source path must resolve to a regular file");
+    if (options.maxBytes !== undefined && before.size > options.maxBytes) {
+      throw new Error(`source exceeds the ${options.maxBytes} byte collection limit`);
+    }
     const bytes = await handle.readFile();
+    if (options.maxBytes !== undefined && bytes.byteLength > options.maxBytes) {
+      throw new Error(`source exceeds the ${options.maxBytes} byte collection limit`);
+    }
     const after = await handle.stat();
     if (!unchanged(before, after)) throw new Error("source changed while it was being collected");
     return {

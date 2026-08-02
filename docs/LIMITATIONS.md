@@ -50,7 +50,9 @@ Mitigation:
 
 ## Unsigned alpha receipts
 
-Protocol `1-alpha` receipts detect mutation through content digests, expiry checks, duplicate-run protection, and live-envelope rechecking. They do not authenticate who created the receipt.
+Protocol `1-alpha` receipts contain an envelope digest, recorded outcome, timestamps, and a caller-recomputable self-digest. Trusted creation and recheck recollect declared source bytes. Receipt creation refuses an existing output path or run-ID marker in one configured local store.
+
+Receipts do not contain an engine version, audience, nonce, signature, or consumption state. Recheck does not consume a receipt or prevent repeated use of the same unexpired receipt. An actor who can delete or replace the local registry can defeat its duplicate-run check. These records do not authenticate who created them.
 
 Do not use them as third-party attestations, signed provenance, or identity proof. Cryptographic signing, key rotation, revocation, and a documented trust-root ceremony are required before making those claims.
 
@@ -78,11 +80,11 @@ The supported runtime is Node.js 22+. Browsers, edge runtimes, Deno, Bun, and ol
 
 ## Protocol stability
 
-`1-alpha` is not stable. Fields, finding codes, receipt behavior, and package APIs may change before `1.0`. Pin exact versions, store the engine version with receipts, and test upgrades against conformance fixtures.
+`1-alpha` is not stable. Fields, finding codes, receipt behavior, and package APIs may change before `1.0`. Pin exact versions, store the engine version alongside receipts in host metadata, and test upgrades against conformance fixtures. The alpha receipt itself does not contain an engine-version field.
 
 ## Availability and resource exhaustion
 
-The verifier is not designed as a hostile multi-tenant network service. Very large envelopes, deeply nested structures, or excessive numbers of records can consume memory and CPU. Applications should enforce request-size and execution-time limits before exposing verification over a network.
+The verifier is not designed as a hostile multi-tenant network service. Trusted source collection defaults to 16 MiB per source and 64 MiB total, checks the file size before reading, and retains bounded source buffers while validating evidence anchors. Applications should lower these limits where practical and must still enforce request-size, record-count, and execution-time limits before exposing verification over a network.
 
 ## No automatic policy quality review
 

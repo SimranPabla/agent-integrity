@@ -64,6 +64,8 @@ Do not put secrets or unnecessary source content into receipts. The CLI avoids e
 
 Each evidence item used by trusted verification must contain `anchor.byteStart`, `anchor.byteEnd`, and the SHA-256 of that exact byte range. Offsets refer to raw file bytes, not JavaScript character positions. The host must supply `projectRoot` and `allowedRoots`; trusted verification rejects a root list that differs from policy.
 
+Trusted context also accepts `maxSourceBytes` and `maxTotalSourceBytes`. Defaults are 16 MiB per file and 64 MiB across one verification. File size is checked before reading and again after the bounded read. Lower these limits for small-document applications.
+
 ## 3. Record decision lifecycle events
 
 Decisions are append-only events with revisions. A decision can be active, rejected, or superseded. A superseding event must explicitly identify its replacement.
@@ -203,25 +205,23 @@ else:
 
 ## Receipts and rechecking
 
-Create a receipt only after verification. Store it immutably under a unique run identifier. Recheck before release when time has passed, source state may have changed, or another process will release the result.
+Create a receipt only with `createReceipt` and the same trusted context used for verification. The function asynchronously recollects every declared source before it writes a create-once local receipt file and run-ID marker. Recheck before release when time has passed or source state may have changed.
 
 A recheck validates:
 
-- receipt structure and digest;
+- receipt version and self-digest;
 - exact envelope digest;
-- live bound-content digest;
+- freshly recollected declared source bytes and evidence anchors;
 - expiry;
-- replay state;
-- unique run identifier;
-- overwrite protection.
+- recorded outcome consistency.
 
-Alpha receipts are unsigned. They detect mutation but do not authenticate who created them. Keep verifier and receipt storage inside the same trusted application boundary.
+Alpha receipts are unsigned. They do not contain engine version, audience, nonce, or consumption state; recheck does not prevent repeated use of the same unexpired receipt. Create-new writes and local run-ID markers refuse duplicates only while that storage remains intact. Keep verifier and receipt storage inside the same trusted application boundary.
 
 ## Result handling and remediation
 
 For `REVIEW`, show the human the findings, response, evidence mapping, and contradictions. The reviewer may approve outside the engine, request better evidence, or ask the agent to produce a new run. Do not mutate the verified envelope in place.
 
-For `BLOCKED`, fix the specific rule violation and create a fresh run identifier and receipt. Reusing an old receipt or overwriting a record defeats the audit trail and is rejected.
+For `BLOCKED`, fix the specific rule violation and create a fresh run identifier and receipt. Do not overwrite records. The alpha library does not provide durable or atomic receipt consumption, so a host needing single-use semantics must add its own trusted transaction until the authenticated receipt work lands.
 
 For checker errors, preserve only safe diagnostic metadata, fail closed, and investigate. Source or response contents should not be placed in general application logs.
 
@@ -236,7 +236,7 @@ For checker errors, preserve only safe diagnostic metadata, fail closed, and inv
 - [ ] Contradictions are surfaced according to policy.
 - [ ] Draft response bytes never reach users before verification.
 - [ ] `REVIEW`, `BLOCKED`, and errors release nothing.
-- [ ] Receipts use unique run identifiers and immutable storage.
+- [ ] Receipt files and run-ID markers are stored in host-protected storage; repeated use is not assumed to be prevented.
 - [ ] Sensitive envelope data is excluded from logs.
-- [ ] The application is tested against tampering and replay examples.
+- [ ] The application is tested against tampering, changed-envelope reuse, expiry, and repeated-use behavior.
 - [ ] Teams understand that `PASS` does not prove truth or evidence completeness.

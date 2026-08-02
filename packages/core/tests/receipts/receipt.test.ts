@@ -2,20 +2,21 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createReceipt, recheckReceipt, verifyEnvelope } from "../../src/index.js";
-import { validEnvelope } from "../support/valid-envelope.js";
+import { createReceipt, recheckTrustedReceipt, verifyTrustedEnvelope } from "../../src/index.js";
+import { trustedEnvelopeFixture } from "../support/trusted-envelope.js";
 
 describe("alpha receipts", () => {
   it("persists an explicitly unsigned content-bound receipt without overwriting", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-receipt-"));
     const path = join(directory, "run-1.json");
-    const envelope = validEnvelope();
-    const verification = verifyEnvelope(envelope);
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
     const receipt = await createReceipt({
       runId: "run-1",
       path,
       envelope,
       verification,
+      context,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
@@ -28,6 +29,7 @@ describe("alpha receipts", () => {
       path,
       envelope,
       verification,
+      context,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     })).rejects.toThrow(/already exists/u);
@@ -35,12 +37,13 @@ describe("alpha receipts", () => {
 
   it("rejects duplicate run IDs even when a different receipt filename is supplied", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-receipt-"));
-    const envelope = validEnvelope();
-    const verification = verifyEnvelope(envelope);
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
     const common = {
       runId: "same-run",
       envelope,
       verification,
+      context,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
       runRegistryDirectory: directory,
@@ -52,32 +55,35 @@ describe("alpha receipts", () => {
 
   it("passes a fresh receipt only when all live bound content is unchanged", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-receipt-"));
-    const envelope = validEnvelope();
-    const verification = verifyEnvelope(envelope);
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
     const receipt = await createReceipt({
       runId: "run-2",
       path: join(directory, "run-2.json"),
       envelope,
       verification,
+      context,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
-    const result = recheckReceipt({ receipt, envelope, now: new Date("2026-08-02T00:30:00.000Z") });
+    const result = await recheckTrustedReceipt({ receipt, envelope, context, now: new Date("2026-08-02T00:30:00.000Z") });
     expect(result.status).toBe("PASS");
   });
 
   it("blocks expired receipts", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-receipt-"));
-    const envelope = validEnvelope();
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
     const receipt = await createReceipt({
       runId: "run-3",
       path: join(directory, "run-3.json"),
       envelope,
-      verification: verifyEnvelope(envelope),
+      verification,
+      context,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
-    const result = recheckReceipt({ receipt, envelope, now: new Date("2026-08-02T01:00:00.000Z") });
+    const result = await recheckTrustedReceipt({ receipt, envelope, context, now: new Date("2026-08-02T01:00:00.000Z") });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.map((finding) => finding.code)).toContain("receipt.expired");
   });
