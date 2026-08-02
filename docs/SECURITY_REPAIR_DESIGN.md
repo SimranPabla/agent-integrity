@@ -20,10 +20,10 @@ The verifier remains deterministic and separate from model reasoning. It does no
 - Sections must cover the complete response exactly once, without gaps or overlap.
 - Every non-empty response has at least one section. All sections require at least one claim in the alpha security profile.
 - Evidence includes a byte range and digest anchored to a trusted collected source.
-- Claims explicitly reference the decision IDs they rely on.
+- Claims explicitly declare decision IDs; the verifier validates those references but does not infer omitted semantic dependencies.
 - The policy is loaded and validated by the host, then identified by a digest; model-supplied policy objects are not authoritative.
 - Source records are host-observed and recollected from allowed roots during verification and release.
-- Decision events are loaded from the configured trusted registry; envelope decision snapshots must match it.
+- Decision events are loaded from the current configured trusted registry; envelope decision snapshots must match it. Cross-run history preservation remains a trusted storage responsibility until authenticated checkpoints exist.
 
 These are breaking alpha changes and will use protocol version `2-alpha`.
 
@@ -60,4 +60,3 @@ Malformed or unverifiable input always fails closed. Checker exceptions never re
 Each adversarial finding becomes a regression test before its fix. Tests cover empty/partial/overlapping response coverage, fabricated sources, source mutation, policy bypass, omitted/stale decisions, canonical collisions, concurrent receipt consumption, copied receipts, future timestamps, resource exhaustion, and filesystem races where the platform permits.
 
 Documentation is rewritten only after implementation invariants pass. A second independent read-only adversarial review is mandatory before public release.
-

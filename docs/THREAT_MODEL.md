@@ -60,7 +60,11 @@ An agent may cite contextual or contradictory material as if it supports a claim
 
 ### Decision revival
 
-An agent may omit registry events, alter its decision snapshot, or reference a rejected decision or an older decision superseded by a replacement. Trusted verification loads the configured YAML registry, binds its exact digest, compares the complete snapshot, and rejects unknown or non-active claim references. Terminal historical decisions that are not referenced do not globally block unrelated claims.
+An agent may omit events from its envelope snapshot, alter that snapshot, or declare a reference to a rejected decision or an older decision superseded by a replacement. Trusted verification loads the current configured YAML registry, binds its exact digest, compares the complete envelope snapshot, and rejects declared unknown or non-active references. Terminal historical decisions that are not referenced do not globally block unrelated claims.
+
+This does not establish cross-run history integrity. The verifier consults no prior digest or authenticated checkpoint, so a trusted host/storage actor that truncates or rewrites the registry and supplies a matching envelope can remove history without detection. The host is responsible for preserving the registry across runs.
+
+The verifier also cannot discover that a claim semantically depends on a decision omitted from `decisionIds`. Completeness of declared decision dependencies remains a trusted host/integration responsibility.
 
 ### Source mutation
 
@@ -130,7 +134,7 @@ Agent Integrity does not establish:
 3. `REVIEW`, `BLOCKED`, malformed input, and errors release nothing.
 4. Every response byte and section is covered.
 5. Source paths remain inside approved roots.
-6. Rejected and superseded decisions cannot become active implicitly.
+6. Declared references to rejected and superseded decisions cannot pass as active within the current trusted snapshot.
 7. Receipt creation refuses an existing path or run-ID marker in its configured local store; this is not durable replay prevention.
 8. Trusted receipt creation and recheck recollect declared source bytes; recheck does not consume the receipt.
 9. Draft content is not streamed before verification.

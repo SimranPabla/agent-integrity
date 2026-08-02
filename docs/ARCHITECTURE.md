@@ -41,7 +41,7 @@ The JSON protocol is the compatibility boundary. Other languages do not need to 
 - canonicalizes supported JSON values;
 - calculates SHA-256 digests;
 - structurally validates envelopes and, through `verifyTrustedEnvelope`, recollects allowed source files and validates exact bytes;
-- loads the configured decision registry from the trusted project root, binds its exact YAML digest, requires the envelope snapshot to match, and rebuilds active, rejected, and superseded state;
+- loads the current configured decision registry from the trusted project root, binds its exact YAML digest, requires the envelope snapshot to match, and rebuilds active, rejected, and superseded state for declared references;
 - checks complete, ordered UTF-8 byte coverage, section digests, and claim coverage for every section;
 - checks supporting, contradictory, and contextual evidence roles;
 - calculates `PASS`, `REVIEW`, or `BLOCKED`;
@@ -93,6 +93,8 @@ Before release, the SDK rechecks the bound envelope. If any byte or bound field 
 ## Trust boundaries
 
 The agent may propose claims and evidence mappings. It cannot set the outcome. The deterministic core calculates the outcome from the full envelope and policy.
+
+Decision checks cover declared `decisionIds` and event history inside the current registry snapshot. The core does not infer omitted semantic dependencies or compare the registry with a prior-run checkpoint. Cross-run append-only preservation belongs to trusted host storage.
 
 For higher assurance, source observation should be collected independently of the model—for example, in the retrieval layer, tool middleware, or application host. If the model alone reports which sources it read, it can omit a source from the envelope. See [Limitations](LIMITATIONS.md).
 

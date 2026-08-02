@@ -1,6 +1,6 @@
 # Agent Integrity
 
-Agent Integrity is an agent-first, deterministic verification engine for developers building AI agents. It checks whether an exact agent response is consistent with the approved sources, decisions, claims, and evidence submitted for that run—and refuses to release a changed or definitively invalid response.
+Agent Integrity is an agent-first, deterministic verification engine for developers building AI agents. It validates an exact response against the sources, current decision snapshot, claims, evidence mappings, and decision references declared for that run—and refuses to release a changed or structurally invalid response.
 
 The agent prepares a complete response envelope. Agent Integrity, which does not call an LLM, independently calculates one outcome:
 
@@ -17,12 +17,14 @@ Agent applications often let the same model gather evidence, interpret policy, w
 - an important claim has no cited support;
 - contextual evidence is presented as proof;
 - a contradiction is included but hidden from the reader;
-- an old, rejected decision is revived;
+- a declared claim reference points to an unknown, rejected, or superseded decision;
 - a source or response changes after verification;
 - a stale receipt is replayed for a different answer;
 - a checker error is accidentally treated as success.
 
 Agent Integrity makes those checks deterministic and content-bound. It is useful for research agents, policy assistants, report generators, decision-support agents, and any agent that must explain how an answer relates to approved evidence.
+
+Decision assurance is limited to the current trusted YAML snapshot. The verifier checks event order and lifecycle inside that snapshot but consults no prior-run checkpoint, so cross-run history preservation depends on trusted host storage. It validates only the `decisionIds` declared on each claim and cannot infer an omitted semantic dependency.
 
 ## Status and version
 

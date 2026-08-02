@@ -1,6 +1,6 @@
 # Superseded Decision Example
 
-This example shows why decision history is append-only. The envelope includes an older decision that has been replaced, then tries to rely on the older state.
+This example shows lifecycle validation inside one current decision-registry snapshot. The envelope declares that its claim depends on an older decision that has been replaced.
 
 ## Run it
 
@@ -19,7 +19,7 @@ Expected:
 
 ## What to inspect
 
-Open `integrity/decisions.yaml` and follow the decision revisions in order. `request.json` contains the same snapshot and its exact registry digest. The claim's `decisionIds` points to `old`, whose latest state is superseded. An agent cannot omit registry history or select an earlier revision simply because it supports the answer it wants to produce.
+Open `integrity/decisions.yaml` and follow the decision revisions in order. `request.json` contains the same current snapshot and its exact registry digest. The claim's `decisionIds` points to `old`, whose latest state is superseded, so that declared reference blocks. This example does not prove the registry was preserved from an earlier run or that every semantic dependency was declared.
 
 ## Try it
 

@@ -58,7 +58,7 @@
 
 - [x] Add failing omission, stale-reference, unrelated-history, and registry-mutation tests.
 - [x] Add `decisionIds` to claims.
-- [x] Strictly load the configured append-only registry and bind its digest.
+- [x] Strictly load the configured registry, validate append order within its current snapshot, and bind its digest. Cross-run preservation remains a trusted storage responsibility.
 - [x] Require referenced decisions to be active without globally blocking unrelated historical decisions.
 - [x] Run all tests and commit.
 

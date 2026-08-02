@@ -40,6 +40,12 @@ Portable Node.js APIs do not provide descriptor-relative traversal for every par
 
 The deterministic engine validates structure, lifecycle state, declared roles, and digests. It does not use an LLM to decide whether a passage genuinely supports a claim. Agent-generated mappings can be semantically weak even when structurally valid.
 
+## Decision dependencies and history
+
+Trusted verification validates the `decisionIds` declared on each claim against the current configured YAML registry snapshot. It cannot determine that a claim semantically relies on another decision omitted by the agent or host. An empty list means only that no dependency was declared, not that no dependency exists.
+
+Within the current snapshot, the parser enforces encountered event order, contiguous revisions, and valid lifecycle transitions. It does not consult a digest or checkpoint from an earlier run. If an actor trusted to manage the registry truncates or rewrites that file and then constructs a matching envelope and digest, the verifier cannot recover the previous history or detect the rewrite. Cross-run append-only preservation requires trusted host/storage controls, backups, or a future authenticated checkpoint mechanism.
+
 Mitigation:
 
 - define evidence requirements by claim type;

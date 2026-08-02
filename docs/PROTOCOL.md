@@ -55,9 +55,11 @@ Evidence and claim identifiers must be unique. Dangling references are rejected.
 
 ## Decision events
 
-Decision state is reconstructed from append-only lifecycle events. Supported states include active, rejected, and superseded. Revisions must be contiguous and non-conflicting. Superseding events must name a valid replacement.
+Decision state is reconstructed from lifecycle events in the current trusted YAML snapshot. Supported states include active, rejected, and superseded. Revisions for each decision must appear in append order, remain contiguous and non-conflicting, and may interleave with events for other decisions. Superseding events must name a valid replacement.
 
-Each claim carries a `decisionIds` list. The list may be empty when the claim does not rely on a durable decision. Trusted verification loads the YAML file configured by `policy.decisions.path`, hashes its exact bytes, and requires both `decisionRegistryDigest` and the envelope's complete `decisions` snapshot to match that registry. It rejects duplicate events, revision gaps, conflicting state, invalid replacement chains, unknown references, and claims that rely on rejected or superseded decisions. Rejected or superseded decisions that no claim references remain valid registry history and do not block an unrelated response.
+Each claim carries a `decisionIds` list. The list may be empty when the envelope declares no durable-decision dependency. Trusted verification loads the YAML file configured by `policy.decisions.path`, hashes its exact bytes, and requires both `decisionRegistryDigest` and the envelope's complete `decisions` snapshot to match that registry. It rejects duplicate events, revision gaps, out-of-order revisions, conflicting state, invalid replacement chains, and declared references to unknown, rejected, or superseded decisions. Rejected or superseded decisions that no claim references remain valid registry history and do not block an unrelated response.
+
+These checks do not discover semantic dependencies missing from `decisionIds`. They prove append order and lifecycle only inside the current snapshot: no prior registry digest or checkpoint is consulted. Preserving history against cross-run truncation or rewriting is a trusted host/storage responsibility.
 
 The registry YAML has exactly two root fields:
 

@@ -34,7 +34,7 @@ Read [index.mjs](index.mjs) from top to bottom. The protocol objects are intenti
 1. Replace the synthetic source with records created by `collectSource` when your retrieval or file tool reads content.
 2. Create each evidence anchor from the exact byte range used, not from decoded character offsets.
 3. Pass the trusted project root and policy-matching allowed roots to both `verifyTrustedEnvelope` and `releaseVerifiedResponse`.
-4. Replace the empty `integrity/decisions.yaml` registry with reviewed append-only events, update its digest and snapshot, and add the active IDs each claim relies on.
+4. Replace the empty `integrity/decisions.yaml` registry with reviewed events, preserve its history in trusted storage, update its digest and snapshot, and declare the active IDs each claim depends on. The verifier cannot discover omitted semantic dependencies.
 5. Ask the agent to emit structured claims, evidence references, and response sections alongside its prose.
 6. Validate the structured output before adding it to the session.
 7. Call the verifier after the complete response exists.

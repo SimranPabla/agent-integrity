@@ -68,9 +68,11 @@ Trusted context also accepts `maxSourceBytes` and `maxTotalSourceBytes`. Default
 
 ## 3. Record decision lifecycle events
 
-Decisions are append-only events with revisions in the YAML file configured by `policy.decisions.path`. A decision can be active, rejected, or superseded. A superseding event must explicitly identify its replacement. Trusted verification reads this file inside `projectRoot`, hashes its exact bytes, and requires the envelope's `decisionRegistryDigest` and complete event snapshot to match it.
+Decisions are lifecycle events with revisions in the YAML file configured by `policy.decisions.path`. A decision can be active, rejected, or superseded. A superseding event must explicitly identify its replacement. Trusted verification reads the current file inside `projectRoot`, hashes its exact bytes, requires the envelope's `decisionRegistryDigest` and complete event snapshot to match it, and validates each decision's encountered append order.
 
-Claims list the decisions they actually rely on in `decisionIds`. Use an empty list when a claim has no durable-decision dependency. Every referenced ID must resolve to an active decision. Historical rejected or superseded decisions may remain in the complete registry; they do not block claims that do not reference them.
+Claims list their declared decision dependencies in `decisionIds`. Use an empty list only when the host is prepared to declare no dependency. Every referenced ID must resolve to an active decision. Historical rejected or superseded decisions may remain in the current registry; they do not block claims that do not reference them. The verifier cannot infer an omitted semantic dependency, so the trusted host must assess whether the list is complete enough for the application.
+
+The verifier does not compare the current registry with a previous run or authenticated checkpoint. Store it in trusted, access-controlled, backed-up storage if append-only history must survive across runs. A host that truncates or rewrites the registry and supplies a matching envelope and digest can erase history without detection by protocol `1-alpha`.
 
 The verifier rejects:
 
@@ -78,7 +80,7 @@ The verifier rejects:
 - conflicting revisions;
 - revision gaps;
 - references to missing replacements;
-- an agent trying to treat a rejected or superseded decision as active.
+- a declared claim reference treating a rejected or superseded decision as active.
 
 Use decisions for approved product directions, policy interpretations, editorial constraints, or any durable choice that should not be silently revived after reversal.
 
@@ -236,7 +238,8 @@ For checker errors, preserve only safe diagnostic metadata, fail closed, and inv
 - [ ] Project policy is reviewed and version-controlled.
 - [ ] Source roots are narrow and intentional.
 - [ ] Source reads are collected outside the model when feasible.
-- [ ] Decision events are append-only and reviewed.
+- [ ] Decision events are reviewed, stored with trusted cross-run history controls, and ordered correctly within the current snapshot.
+- [ ] A trusted host checks that each claim's declared `decisionIds` does not omit a known dependency.
 - [ ] Response sections cover every UTF-8 byte exactly once and their digests match.
 - [ ] Every response section is mapped to at least one claim.
 - [ ] Contradictions are surfaced according to policy.

@@ -31,7 +31,7 @@ Include:
 - receipt replay, expiry bypass, duplicate run-ID acceptance, or overwrite;
 - canonicalization differences that produce unsafe cross-runtime behavior;
 - path traversal, absolute-path access, or symlink escape;
-- omitted registry history, an envelope decision snapshot differing from the configured registry, or rejected/superseded decisions passing as active claim references;
+- an envelope decision snapshot differing from the current configured registry, or declared rejected/superseded decision references passing as active;
 - missing substantive-section coverage incorrectly passing;
 - parser confusion involving duplicate YAML keys, aliases, tags, or ambiguous values;
 - leakage of source or response content from documented CLI output;
@@ -40,6 +40,8 @@ Include:
 ## Usually out of scope
 
 - claims that `PASS` does not prove truth, because this is an explicit non-goal;
+- decision dependencies omitted from a claim's declared `decisionIds` without a trusted host observation;
+- cross-run registry truncation or rewriting by an actor trusted to control registry storage, because protocol `1-alpha` consults no prior authenticated checkpoint;
 - an agent omitting a source from an envelope without a host collector;
 - a malicious application intentionally bypassing an in-process library;
 - denial of service requiring unbounded attacker-controlled local input unless a supported deployment exposes that input;
