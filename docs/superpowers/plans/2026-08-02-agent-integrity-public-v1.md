@@ -150,11 +150,11 @@
 - Test: `packages/core/tests/receipts/receipt.test.ts`
 - Test: `packages/core/tests/adversarial/replay.test.ts`
 
-- [ ] Write failing tests for response/source mutation, expiry, duplicate run
+- [x] Write failing tests for response/source mutation, expiry, duplicate run
   identifiers, overwrite refusal, and post-check editing.
-- [ ] Implement alpha receipt persistence with explicit unsigned status.
-- [ ] Implement recheck against live bound subjects.
-- [ ] Run tests and commit.
+- [x] Implement alpha receipt persistence with explicit unsigned status.
+- [x] Implement recheck against live bound subjects.
+- [x] Run tests and commit.
 
 ## Chunk 4: Agent SDK, CLI, and release candidate
 

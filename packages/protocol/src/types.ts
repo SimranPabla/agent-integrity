@@ -42,6 +42,23 @@ export interface EnvelopeVerificationResult extends IntegrityResult {
   readonly envelopeDigest?: string;
 }
 
+export interface AlphaIntegrityReceipt {
+  readonly protocolVersion: typeof PROTOCOL_VERSION;
+  readonly receiptVersion: "1-alpha";
+  readonly signature: { readonly status: "unsigned" };
+  readonly runId: string;
+  readonly createdAt: string;
+  readonly expiresAt: string;
+  readonly envelopeDigest: string;
+  readonly verification: IntegrityResult;
+  readonly receiptDigest: string;
+}
+
+export interface ReceiptRecheckResult extends IntegrityResult {
+  readonly receiptDigest?: string;
+  readonly envelopeDigest?: string;
+}
+
 export type DecisionAction = "activate" | "reject" | "supersede";
 
 export interface DecisionEvent {

@@ -8,3 +8,5 @@ export * from "./decisions/reduce-decisions.js";
 export * from "./claims/coverage.js";
 export * from "./claims/evidence.js";
 export * from "./verify.js";
+export * from "./receipts/create-receipt.js";
+export * from "./receipts/recheck-receipt.js";

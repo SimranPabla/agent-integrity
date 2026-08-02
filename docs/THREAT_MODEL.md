@@ -35,3 +35,9 @@ Agent integrations should use trusted evidence collectors or independently
 record source access where possible. Until that collection layer exists, users
 must treat a `PASS` as consistency with the submitted evidence, not proof that
 the evidence set is complete.
+
+## Alpha receipt authentication limit
+
+Alpha receipts are explicitly unsigned. Their digest detects local mutation,
+but without a trusted signing key they do not authenticate the producer. The
+alpha protocol must not be presented as signed provenance.
