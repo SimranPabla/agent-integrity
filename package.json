@@ -12,7 +12,13 @@
   "bugs": {
     "url": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity/issues"
   },
-  "keywords": ["ai-agents", "integrity", "verification", "provenance", "security"],
+  "keywords": [
+    "ai-agents",
+    "integrity",
+    "verification",
+    "provenance",
+    "security"
+  ],
   "type": "module",
   "workspaces": [
     "packages/*"
@@ -30,6 +36,8 @@
   },
   "devDependencies": {
     "@types/node": "24.1.0",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
     "typescript": "5.8.3",
     "vitest": "3.2.7"
   }

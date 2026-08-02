@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { verifyEnvelope } from "../../src/index.js";
 import { readFile } from "node:fs/promises";
 import { validEnvelope as completeEnvelope } from "../support/valid-envelope.js";
+import Ajv2020 from "ajv/dist/2020.js";
+import { createHash } from "node:crypto";
+
+async function schemaValidator() {
+  const schema = JSON.parse(await readFile(new URL("../../../../schemas/integrity-envelope.schema.json", import.meta.url), "utf8"));
+  return { schema, validate: new Ajv2020({ strict: true, strictRequired: false }).compile(schema) };
+}
 
 function validEnvelope(): Record<string, unknown> {
   return {
@@ -69,24 +76,30 @@ describe("strict envelope runtime schema", () => {
   });
 
   it.each([
-    ["supporting disclosed", { role: "supporting", support: "direct", disclosed: true }],
-    ["contradictory support", { role: "contradictory", support: "direct" }],
-    ["contextual support", { role: "contextual", support: "ambiguous" }],
-    ["contextual disclosed", { role: "contextual", disclosed: false }],
-  ])("keeps runtime role metadata rules aligned for %s", async (_name, metadata) => {
+    ["supporting direct", { role: "supporting", support: "direct" }, true],
+    ["supporting default", { role: "supporting" }, true],
+    ["supporting disclosed", { role: "supporting", support: "direct", disclosed: true }, false],
+    ["contradictory disclosed", { role: "contradictory", disclosed: true }, true],
+    ["contradictory support", { role: "contradictory", support: "direct" }, false],
+    ["contextual plain", { role: "contextual" }, true],
+    ["contextual support", { role: "contextual", support: "ambiguous" }, false],
+    ["contextual disclosed", { role: "contextual", disclosed: false }, false],
+  ])("keeps JSON Schema and runtime role metadata aligned for %s", async (_name, metadata, expectedValid) => {
     const envelope = completeEnvelope();
     envelope.claims[0]!.evidence[0] = { evidenceId: "evidence-1", ...metadata } as never;
-    expect(verifyEnvelope(envelope).status).toBe("BLOCKED");
-    const schema = JSON.parse(await readFile(new URL("../../../../schemas/integrity-envelope.schema.json", import.meta.url), "utf8"));
-    expect(JSON.stringify(schema.$defs.claimEvidence.allOf)).toContain(`\"${metadata.role}\"`);
+    const { validate } = await schemaValidator();
+    expect(validate(envelope), JSON.stringify(validate.errors)).toBe(expectedValid);
+    expect(verifyEnvelope(envelope).findings.some((finding) => finding.code === "checker.failure")).toBe(!expectedValid);
   });
 
   it("documents character-vs-UTF-8-byte limits and enforces the byte limit at runtime", async () => {
-    const schema = JSON.parse(await readFile(new URL("../../../../schemas/integrity-envelope.schema.json", import.meta.url), "utf8"));
+    const { schema, validate } = await schemaValidator();
     expect(schema.$defs.response.description).toMatch(/UTF-8 bytes.*cannot express/u);
     expect(schema.$defs.response.properties.content.maxLength).toBeUndefined();
     const envelope = completeEnvelope();
-    envelope.response = { content: "é".repeat(8_388_609), sections: [] };
+    const content = "é".repeat(8_388_609);
+    envelope.response = { content, sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: Buffer.byteLength(content), sha256: createHash("sha256").update(content).digest("hex") }] };
+    expect(validate(envelope)).toBe(true);
     expect(verifyEnvelope(envelope).status).toBe("BLOCKED");
   });
 });

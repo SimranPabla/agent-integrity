@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -58,7 +59,7 @@ describe("signed alpha receipts", () => {
     };
     await createReceipt({ ...common, path: join(directory, "first.json") });
     await expect(createReceipt({ ...common, path: join(directory, "second.json") }))
-      .rejects.toThrow(/run ID already exists/u);
+      .rejects.toThrow(/(run ID|transaction).*exists/u);
   });
 
   it("passes a fresh receipt only when all live bound content is unchanged", async () => {
@@ -169,7 +170,9 @@ describe("signed alpha receipts", () => {
     const verification = await verifyTrustedEnvelope(envelope, context);
     const receipt = await createReceipt({ runId: "recoverable", path: join(directory, "receipt.json"), envelope, verification, context, receiptStore: store, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
     await rm(join(storePath, "issued", `${receipt.receiptDigest}.json`));
-    await store.recoverInterruptedIssue(receipt);
+    const transactionName = createHash("sha256").update(receipt.receiptDigest).digest("hex");
+    const transaction = JSON.parse(await readFile(join(storePath, "transactions", `${transactionName}.json`), "utf8"));
+    await store.recoverInterruptedIssue(receipt, { offlineExclusive: true, transactionId: transaction.transactionId });
     await expect(store.issue(receipt)).resolves.toBeUndefined();
   });
 
@@ -184,7 +187,7 @@ describe("signed alpha receipts", () => {
     const recoveredPath = join(directory, "recovered.json");
     await expect(recoveredStore.completeReceiptFile(receipt.receiptDigest, recoveredPath)).resolves.toEqual(receipt);
     expect(JSON.parse(await readFile(recoveredPath, "utf8"))).toEqual(receipt);
-    await expect(recoveredStore.issue(receipt)).rejects.toThrow(/run ID already exists/u);
+    await expect(recoveredStore.issue(receipt)).rejects.toThrow(/(run ID|transaction).*exists/u);
   });
 
   it("enforces a concurrency-safe maximum receipt count", async () => {
@@ -210,5 +213,50 @@ describe("signed alpha receipts", () => {
     const base = { runId: "parent-file", envelope, verification, context, receiptStore, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") };
     await expect(createReceipt({ ...base, path: join(parent, "receipt.json") })).rejects.toThrow();
     await expect(createReceipt({ ...base, path: join(directory, "retry.json") })).resolves.toMatchObject({ runId: "parent-file" });
+  });
+
+  it("does not let recovery race a live issuer paused before commit", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-live-issuer-"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const seed = await createReceipt({ runId: "live-race", path: join(directory, "seed.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "seed-store")), ...receiptSigningOptions, nonce: "live-race-nonce", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => { release = resolve; });
+    let reached!: () => void;
+    const atPause = new Promise<void>((resolve) => { reached = resolve; });
+    const store = new FileReceiptStore(join(directory, "target"), { faultInjector: async (point) => { if (point === "issue:before-issued") { reached(); await paused; } } });
+    const issuing = store.issue(seed);
+    await atPause;
+    await expect(store.recoverInterruptedIssue(seed, undefined as never)).rejects.toThrow(/offlineExclusive/u);
+    await expect(new FileReceiptStore(join(directory, "target")).issue(seed)).rejects.toThrow(/(run ID|transaction).*exists/u);
+    release();
+    await expect(issuing).resolves.toBeUndefined();
+  });
+
+  it("publishes only complete records and fails closed at injected boundaries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-publish-fault-"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const receipt = await createReceipt({ runId: "fault-record", path: join(directory, "seed.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "seed-store")), ...receiptSigningOptions, nonce: "fault-record-nonce", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const targetPath = join(directory, "target");
+    const fault = new FileReceiptStore(targetPath, { faultInjector: (point) => { if (point === "run:after-temp-sync") throw new Error("injected crash"); } });
+    await expect(fault.issue(receipt)).rejects.toThrow(/injected crash/u);
+    expect(await import("node:fs/promises").then(({ readdir }) => readdir(join(targetPath, ".staging")))).toEqual([]);
+    await expect(new FileReceiptStore(targetPath).issue(receipt)).resolves.toBeUndefined();
+    const consumeFault = new FileReceiptStore(targetPath, { faultInjector: (point) => { if (point === "consumed:after-temp-sync") throw new Error("consume crash"); } });
+    await expect(consumeFault.consume(receipt, new Date("2026-08-02T00:30:00.000Z"))).rejects.toThrow(/consume crash/u);
+    await expect(new FileReceiptStore(targetPath).consume(receipt, new Date("2026-08-02T00:31:00.000Z"))).resolves.toBeUndefined();
+
+    const postPublishPath = join(directory, "post-publish");
+    await new FileReceiptStore(postPublishPath).issue(receipt);
+    const afterPublish = new FileReceiptStore(postPublishPath, { faultInjector: (point) => { if (point === "consumed:after-publish") throw new Error("post-publish crash"); } });
+    await expect(afterPublish.consume(receipt, new Date("2026-08-02T00:32:00.000Z"))).rejects.toThrow(/post-publish crash/u);
+    await expect(new FileReceiptStore(postPublishPath).consume(receipt, new Date("2026-08-02T00:33:00.000Z"))).rejects.toThrow(/already been consumed/u);
+
+    const abandoned = join(targetPath, ".staging", ".integrity-abandoned.tmp");
+    await writeFile(abandoned, "{partial");
+    await expect(new FileReceiptStore(targetPath).cleanupStaging(undefined as never)).rejects.toThrow(/offlineExclusive/u);
+    await expect(new FileReceiptStore(targetPath).cleanupStaging({ offlineExclusive: true })).resolves.toBe(1);
+    await expect(readFile(abandoned)).rejects.toThrow();
   });
 });
