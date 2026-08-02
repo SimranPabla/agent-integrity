@@ -4,8 +4,8 @@ An agent-first, deterministic integrity engine for developers building AI
 agents. It checks whether an exact agent response remains consistent with the
 approved sources and decisions supplied to it.
 
-> Release-candidate source is currently in private staging. It has no remote
-> and is not yet approved for public release.
+> Release-candidate source is hosted in a private GitHub review repository and
+> is not yet approved for public release.
 
 Agent Integrity is designed for developers building AI agents. The agent
 constructs a response envelope automatically; an independent deterministic
