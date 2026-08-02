@@ -9,6 +9,7 @@ import { validateClaims } from "./claims/coverage.js";
 import { reduceDecisions } from "./decisions/reduce-decisions.js";
 import { sha256Canonical } from "./hash.js";
 import { calculateOutcome, checkerFailure } from "./outcome.js";
+import { assertIntegrityEnvelope } from "./schema/validate-envelope.js";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 
@@ -46,14 +47,7 @@ function decisionFindings(envelope: IntegrityEnvelope): IntegrityFinding[] {
 }
 
 function verifyUnsafe(envelope: IntegrityEnvelope): EnvelopeVerificationResult {
-  if (envelope === null || typeof envelope !== "object") throw new Error("envelope must be an object");
-  if (envelope.protocolVersion !== PROTOCOL_VERSION) throw new Error("unsupported protocol version");
-  if (typeof envelope.response?.content !== "string") throw new Error("response.content must be a string");
-  if (!Array.isArray(envelope.response.sections)) throw new Error("response.sections must be a list");
-  if (!Array.isArray(envelope.sources) || !Array.isArray(envelope.decisions) ||
-      !Array.isArray(envelope.evidence) || !Array.isArray(envelope.claims)) {
-    throw new Error("sources, decisions, evidence, and claims must be lists");
-  }
+  assertIntegrityEnvelope(envelope);
   validateSources(envelope.sources);
   const sourceIds = new Set(envelope.sources.map((source) => source.sourceId));
   for (const [index, evidence] of envelope.evidence.entries()) {
