@@ -36,6 +36,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=high
+
       - name: Require tag and workspace versions to match
         env:
           RELEASE_TAG: ${{ github.ref_name }}

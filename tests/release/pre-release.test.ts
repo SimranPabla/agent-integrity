@@ -38,10 +38,20 @@ describe("release metadata", () => {
     expect(workflow).toContain("npm run verify");
     expect(workflow).toContain("npm run release:check");
     expect(workflow).toContain("npm run pack:check");
+    expect(workflow).toContain("npm audit --audit-level=high");
     const publishes = ["protocol", "core", "sdk", "cli"].map((name) => workflow.indexOf(`npm publish ./packages/${name} --access public --provenance --tag alpha`));
     expect(publishes.every((position) => position >= 0)).toBe(true);
     expect(publishes).toEqual([...publishes].sort((left, right) => left - right));
     expect(workflow.indexOf("npm run release:check")).toBeLessThan(publishes[0]!);
+    expect(workflow.indexOf("npm audit --audit-level=high")).toBeLessThan(publishes[0]!);
+  });
+
+  test("threat model limits exactly-once replay protection to one monotonic local store", async () => {
+    const threatModel = await readFile(new URL("../../docs/THREAT_MODEL.md", import.meta.url), "utf8");
+    expect(threatModel).toContain("only when every consumer uses the same protected, shared, monotonic local filesystem store");
+    expect(threatModel).toContain("Restoring older store state can reopen replay");
+    expect(threatModel).toContain("does not provide distributed or multi-host replay protection");
+    expect(threatModel).not.toContain("this is not durable replay prevention");
   });
 
   test("release scanner intentionally fails while publication placeholders remain", async () => {
