@@ -82,9 +82,17 @@ export function assertIntegrityEnvelope(value: unknown): asserts value is Integr
   if (Buffer.byteLength(content, "utf8") > MAX_CONTENT_BYTES) throw new Error("response.content is too large");
   list(response.sections, "response.sections").forEach((entry, index) => {
     const section = record(entry, `response.sections[${index}]`);
-    exact(section, ["sectionId", "substantive"], `response.sections[${index}]`);
+    exact(section, ["sectionId", "substantive", "byteStart", "byteEnd", "sha256"], `response.sections[${index}]`);
     string(section.sectionId, `response.sections[${index}].sectionId`);
     if (typeof section.substantive !== "boolean") throw new Error(`response.sections[${index}].substantive must be boolean`);
+    for (const key of ["byteStart", "byteEnd"] as const) {
+      if (!Number.isSafeInteger(section[key]) || (section[key] as number) < 0) {
+        throw new Error(`response.sections[${index}].${key} must be a non-negative safe integer`);
+      }
+    }
+    if (!SHA256.test(string(section.sha256, `response.sections[${index}].sha256`))) {
+      throw new Error(`response.sections[${index}].sha256 is invalid`);
+    }
   });
 
   list(envelope.sources, "sources").forEach((entry, index) => {

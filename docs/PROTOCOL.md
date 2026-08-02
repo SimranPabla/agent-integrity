@@ -13,18 +13,20 @@ A complete response envelope binds all data needed to calculate an outcome:
 - a unique run identifier;
 - parsed policy and policy digest;
 - exact response content;
-- response sections and substantive markers;
+- response sections with UTF-8 byte ranges, exact-byte SHA-256 digests, and substantive markers;
 - approved source records and exact-byte digests;
 - decision lifecycle events;
 - evidence items;
 - claims and their evidence references;
 - protocol version and other required metadata.
 
-Verification covers the whole envelope. An implementation must not verify only the claims an agent chooses to highlight while ignoring unmapped substantive sections.
+Verification covers the whole envelope. Protocol `1-alpha` requires ordered sections to partition every UTF-8 response byte exactly once, and every section must have at least one claim.
 
 ## Response sections
 
-Sections provide stable identifiers for parts of a human-readable response. A section marked substantive must be referenced by at least one valid claim. Introductory or formatting-only sections can be marked non-substantive.
+Sections provide stable identifiers for parts of a human-readable response. Each section contains an inclusive `byteStart`, exclusive `byteEnd`, and `sha256` of those exact UTF-8 bytes. Ranges must be ordered, non-empty, non-overlapping, begin and end on UTF-8 code-point boundaries, start at byte zero, and end at the response byte length. A non-empty response requires at least one section; an empty response has none.
+
+Every section, including one marked non-substantive, must be referenced by at least one claim under the alpha security profile. The `substantive` marker is retained as classification metadata, but cannot weaken claim coverage.
 
 Section identifiers must be unique. Claims referring to missing sections are invalid.
 

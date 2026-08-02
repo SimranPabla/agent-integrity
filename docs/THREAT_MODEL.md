@@ -52,7 +52,7 @@ The verifier is trusted to implement the documented protocol. Unexpected verifie
 
 ### Missing coverage
 
-An agent may try to leave a substantive section outside verification. Complete-envelope validation requires claim coverage for substantive sections.
+An agent may try to leave prose outside declared sections or leave a declared section without a claim. Complete-envelope validation requires sections to partition every UTF-8 response byte exactly once and requires claim coverage for every section.
 
 ### Evidence-role confusion
 
@@ -126,7 +126,7 @@ Agent Integrity does not establish:
 1. Only the verifier calculates status.
 2. Only an unchanged `PASS` can release response bytes.
 3. `REVIEW`, `BLOCKED`, malformed input, and errors release nothing.
-4. Every substantive section is covered.
+4. Every response byte and section is covered.
 5. Source paths remain inside approved roots.
 6. Rejected and superseded decisions cannot become active implicitly.
 7. Receipt paths and run identifiers are unique.

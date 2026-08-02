@@ -50,11 +50,11 @@ export function validateClaims(input: ClaimValidationInput): readonly IntegrityF
   }
 
   for (const [index, section] of input.sections.entries()) {
-    if (section.substantive && !coveredSections.has(section.sectionId)) {
+    if (!coveredSections.has(section.sectionId)) {
       findings.push({
         code: "claim.section_uncovered",
         severity: "blocked",
-        message: `Substantive section ${section.sectionId} has no registered claim`,
+        message: `Section ${section.sectionId} has no registered claim`,
         path: `sections[${index}]`,
       });
     }

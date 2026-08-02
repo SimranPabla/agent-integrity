@@ -61,7 +61,7 @@ Copy an example directory and change one field at a time:
 
 - remove supporting evidence;
 - change supporting evidence to contextual;
-- mark another response section substantive without adding a claim;
+- add another response section without adding a claim;
 - add a contradictory evidence item;
 - change one response character after verification;
 - change a source digest;

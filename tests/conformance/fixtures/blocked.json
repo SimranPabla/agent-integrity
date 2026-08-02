@@ -16,7 +16,7 @@
     },
     "response": {
       "content": "Use the retired rollout plan.",
-      "sections": [{ "sectionId": "answer", "substantive": true }]
+      "sections": [{ "sectionId": "answer", "substantive": true, "byteStart": 0, "byteEnd": 29, "sha256": "3f265451550d810f589936201e9813b53773babd27b7cca60547f7e167901068" }]
     },
     "sources": [{
       "sourceId": "rollout",

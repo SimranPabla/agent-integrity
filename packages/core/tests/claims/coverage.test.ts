@@ -3,8 +3,7 @@ import type { EvidenceItem, IntegrityClaim, ResponseSection } from "@agent-integ
 import { validateClaims } from "../../src/claims/coverage.js";
 
 const sections: ResponseSection[] = [
-  { sectionId: "summary", substantive: true },
-  { sectionId: "footer", substantive: false },
+  { sectionId: "summary", substantive: true, byteStart: 0, byteEnd: 1, sha256: "a".repeat(64) },
 ];
 const evidence: EvidenceItem[] = [{ evidenceId: "ev-1", sourceId: "source-1" }];
 
@@ -27,8 +26,8 @@ describe("claim coverage and evidence roles", () => {
     expect(validateClaims({ sections, claims: [], evidence, requiredEvidenceFor: ["factual"], contradictions: "review" })).toContainEqual(expect.objectContaining({ code: "claim.section_uncovered", severity: "blocked", path: "sections[0]" }));
   });
 
-  it("does not require claims for non-substantive sections", () => {
-    expect(validateClaims({ sections: [{ sectionId: "footer", substantive: false }], claims: [], evidence: [], requiredEvidenceFor: ["factual"], contradictions: "review" })).toEqual([]);
+  it("requires claims for non-substantive sections under the alpha security profile", () => {
+    expect(validateClaims({ sections: [{ sectionId: "footer", substantive: false, byteStart: 0, byteEnd: 1, sha256: "a".repeat(64) }], claims: [], evidence: [], requiredEvidenceFor: ["factual"], contradictions: "review" })).toContainEqual(expect.objectContaining({ code: "claim.section_uncovered", severity: "blocked" }));
   });
 
   it("blocks required claims with no evidence or contextual-only evidence", () => {

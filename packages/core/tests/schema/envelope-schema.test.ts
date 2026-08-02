@@ -50,7 +50,7 @@ describe("strict envelope runtime schema", () => {
     const envelope = validEnvelope();
     envelope.response = {
       content: "claim",
-      sections: [{ sectionId: "s1", substantive: "false" }],
+      sections: [{ sectionId: "s1", substantive: "false", byteStart: 0, byteEnd: 1, sha256: "a".repeat(64) }],
     };
     expect(verifyEnvelope(envelope as never).status).toBe("BLOCKED");
   });

@@ -16,7 +16,7 @@
     },
     "response": {
       "content": "The deployment window may begin at 09:00 UTC.",
-      "sections": [{ "sectionId": "answer", "substantive": true }]
+      "sections": [{ "sectionId": "answer", "substantive": true, "byteStart": 0, "byteEnd": 45, "sha256": "754e33f98a22e1600b2f752a2eb34bc3e5d3319894ab7c461ce4f42a2bd57b82" }]
     },
     "sources": [{
       "sourceId": "notes",

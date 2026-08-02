@@ -34,10 +34,10 @@
 
 **Files:** protocol types/schema, `packages/core/src/claims/coverage.ts`, verification tests and fixtures
 
-- [ ] Add failing tests for zero sections, gaps, overlaps, wrong digests, trailing prose, invalid UTF-8 boundaries, and unclaimed sections.
-- [ ] Add section byte ranges and exact-byte digests.
-- [ ] Enforce complete non-overlapping coverage and claim coverage.
-- [ ] Migrate fixtures/examples, run all tests, and commit.
+- [x] Add failing tests for zero sections, gaps, overlaps, wrong digests, trailing prose, invalid UTF-8 boundaries, and unclaimed sections.
+- [x] Add section byte ranges and exact-byte digests.
+- [x] Enforce complete non-overlapping coverage and claim coverage.
+- [x] Migrate fixtures/examples, run all tests, and commit.
 
 ## Chunk 2: Trusted evidence and decisions
 
@@ -105,4 +105,3 @@
 - [ ] Request a fresh independent read-only code and documentation adversarial review.
 - [ ] Fix confirmed findings and repeat until no release blocker remains.
 - [ ] Keep GitHub private until explicit publication approval.
-

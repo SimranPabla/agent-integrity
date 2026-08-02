@@ -49,6 +49,7 @@ describe("integrity CLI", () => {
   it("verifies an envelope and returns only integrity metadata", async () => {
     const envelope = validEnvelope();
     envelope.response.content = "PRIVATE SOURCE-LIKE RESPONSE";
+    envelope.response.sections = [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 28, sha256: "cd1545015ecb32d3597ba7f161f36cd11f3365bf30c55b9400aa037e3cdc0472" }];
     const result = await run("verify", { envelope });
     expect(result.code).toBe(0);
     expect(result.output).toMatchObject({ status: "PASS", protocolVersion: "1-alpha", findings: [] });

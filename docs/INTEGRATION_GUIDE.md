@@ -78,7 +78,7 @@ Use decisions for approved product directions, policy interpretations, editorial
 
 ## 4. Map the response
 
-Split the response into stable sections and mark substantive sections. Every substantive section must be covered by one or more claims.
+Split the final response UTF-8 bytes into ordered, non-overlapping sections. Record each section's inclusive `byteStart`, exclusive `byteEnd`, and SHA-256 of those exact bytes. The sections must cover the response from byte zero to its full byte length without gaps, and every section must be covered by one or more claims.
 
 Each claim has a type such as factual, recommendation, or inference. Claims reference evidence items. Evidence has one role:
 
@@ -217,7 +217,8 @@ For checker errors, preserve only safe diagnostic metadata, fail closed, and inv
 - [ ] Source roots are narrow and intentional.
 - [ ] Source reads are collected outside the model when feasible.
 - [ ] Decision events are append-only and reviewed.
-- [ ] Every substantive response section is mapped to claims.
+- [ ] Response sections cover every UTF-8 byte exactly once and their digests match.
+- [ ] Every response section is mapped to at least one claim.
 - [ ] Contradictions are surfaced according to policy.
 - [ ] Draft response bytes never reach users before verification.
 - [ ] `REVIEW`, `BLOCKED`, and errors release nothing.

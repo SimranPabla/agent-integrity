@@ -16,7 +16,7 @@ const policy = {
 
 const session = new AgentIntegritySession(policy)
   .setResponse("The maintenance window begins at 09:00 UTC.", [
-    { sectionId: "answer", substantive: true },
+    { sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 43, sha256: "540beff0286b1ba21c45be4113a48f85ca13cb1b6b4b1f9ef9de06bf08238f6a" },
   ])
   .addSource({
     sourceId: "maintenance-policy",

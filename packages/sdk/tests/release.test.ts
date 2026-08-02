@@ -18,7 +18,7 @@ function validEnvelope(): IntegrityEnvelope {
         replay: "block",
       },
     },
-    response: { content: "Supported response", sections: [{ sectionId: "answer", substantive: true }] },
+    response: { content: "Supported response", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 18, sha256: "a31069ff26ded3cd55c0d40ebaa3430097950a210b8caaece07b27dedbb92766" }] },
     sources: [{ sourceId: "source-1", path: "docs/source.md", sha256: "a".repeat(64), size: 10 }],
     decisions: [],
     evidence: [{ evidenceId: "evidence-1", sourceId: "source-1" }],
@@ -66,7 +66,7 @@ describe("releaseVerifiedResponse", () => {
   it("blocks post-verification response mutation", () => {
     const envelope = validEnvelope();
     const verification = verifyEnvelope(envelope);
-    const mutated = { ...envelope, response: { ...envelope.response, content: "Changed after checking" } };
+    const mutated = { ...envelope, response: { content: "Changed after checking", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 22, sha256: "d7e39934bbd672eec72ac901869071c5a98498bd14bb5a6b0596ab954ece672c" }] } };
     const result = releaseVerifiedResponse({ envelope: mutated, verification });
     expect(result.status).toBe("BLOCKED");
     expect(result.verification.findings[0]?.code).toBe("release.verification_mismatch");

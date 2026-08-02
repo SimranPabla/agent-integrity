@@ -6,7 +6,7 @@ This is the smallest complete agent-first integration. It demonstrates the bound
 
 - constructing a complete envelope through `AgentIntegritySession`;
 - registering exact sources and decision events;
-- mapping a substantive response section to a claim and supporting evidence;
+- binding a response section to exact UTF-8 byte offsets and a digest, then mapping it to a claim and supporting evidence;
 - calculating a deterministic `PASS`;
 - releasing only the exact verified response.
 
@@ -43,7 +43,7 @@ Do not stream the raw model draft to the user. Buffer it until verification fini
 ## Try failure cases
 
 - Change the evidence role from supporting to contextual; the claim can no longer satisfy required support.
-- Delete the claim; the substantive response section becomes uncovered.
+- Delete the claim; the response section becomes uncovered.
 - Change the response after verification; the release guard refuses it.
 - Reference a rejected decision; verification blocks the run.
 

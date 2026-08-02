@@ -85,6 +85,12 @@ export type EvidenceSupport = "direct" | "ambiguous";
 export interface ResponseSection {
   readonly sectionId: string;
   readonly substantive: boolean;
+  /** Inclusive UTF-8 byte offset into ResponseDocument.content. */
+  readonly byteStart: number;
+  /** Exclusive UTF-8 byte offset into ResponseDocument.content. */
+  readonly byteEnd: number;
+  /** SHA-256 of the exact UTF-8 bytes in [byteStart, byteEnd). */
+  readonly sha256: string;
 }
 
 export interface EvidenceItem {

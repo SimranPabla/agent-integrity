@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validateClaims } from "../../src/claims/coverage.js";
 
 const base = {
-  sections: [{ sectionId: "answer", substantive: true }],
+  sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 1, sha256: "a".repeat(64) }],
   evidence: [
     { evidenceId: "support", sourceId: "policy" },
     { evidenceId: "conflict", sourceId: "audit" },

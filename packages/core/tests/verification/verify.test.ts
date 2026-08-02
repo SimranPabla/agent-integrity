@@ -17,7 +17,7 @@ function envelope(): IntegrityEnvelope {
         replay: "block",
       },
     },
-    response: { content: "The approved policy is active.", sections: [{ sectionId: "answer", substantive: true }] },
+    response: { content: "The approved policy is active.", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 30, sha256: "61fe3a22fbb5346c380e9517bfc80b11fa5af77c800bec0b20c3c143a45b28df" }] },
     sources: [{ sourceId: "policy", path: "docs/policy.md", sha256: "a".repeat(64), size: 12 }],
     decisions: [{ eventId: "event-1", decisionId: "decision-1", revision: 1, action: "activate" }],
     evidence: [{ evidenceId: "evidence-1", sourceId: "policy" }],

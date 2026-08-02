@@ -10,6 +10,7 @@ import { reduceDecisions } from "./decisions/reduce-decisions.js";
 import { sha256Canonical } from "./hash.js";
 import { calculateOutcome, checkerFailure } from "./outcome.js";
 import { assertIntegrityEnvelope } from "./schema/validate-envelope.js";
+import { assertCompleteResponseCoverage } from "./response/coverage.js";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 
@@ -48,6 +49,7 @@ function decisionFindings(envelope: IntegrityEnvelope): IntegrityFinding[] {
 
 function verifyUnsafe(envelope: IntegrityEnvelope): EnvelopeVerificationResult {
   assertIntegrityEnvelope(envelope);
+  assertCompleteResponseCoverage(envelope.response);
   validateSources(envelope.sources);
   const sourceIds = new Set(envelope.sources.map((source) => source.sourceId));
   for (const [index, evidence] of envelope.evidence.entries()) {

@@ -42,7 +42,7 @@ The JSON protocol is the compatibility boundary. Other languages do not need to 
 - calculates SHA-256 digests;
 - validates allowed source roots and exact source bytes;
 - rebuilds active, rejected, and superseded decision state;
-- checks substantive-section coverage;
+- checks complete, ordered UTF-8 byte coverage, section digests, and claim coverage for every section;
 - checks supporting, contradictory, and contextual evidence roles;
 - calculates `PASS`, `REVIEW`, or `BLOCKED`;
 - creates immutable alpha receipts;

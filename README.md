@@ -113,6 +113,7 @@ An integration normally performs five steps:
 5. Release only the unchanged response returned by the release guard.
 
 ```js
+import { createHash } from "node:crypto";
 import { verifyEnvelope } from "@agent-integrity/core";
 import {
   AgentIntegritySession,
@@ -125,9 +126,16 @@ session.addSource(sourceRecord);
 session.addDecision(activeDecision);
 session.addEvidence(evidenceItem);
 session.addClaim(claim);
+const responseContent = "The exact response shown to the user.";
 session.setResponse(
-  "The exact response shown to the user.",
-  [{ sectionId: "recommendation", substantive: true }],
+  responseContent,
+  [{
+    sectionId: "recommendation",
+    substantive: true,
+    byteStart: 0,
+    byteEnd: Buffer.byteLength(responseContent, "utf8"),
+    sha256: createHash("sha256").update(responseContent, "utf8").digest("hex"),
+  }],
 );
 
 const envelope = session.buildEnvelope();

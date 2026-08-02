@@ -17,7 +17,7 @@ describe("receipt replay and mutation resistance", () => {
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
-    const changed = { ...envelope, response: { ...envelope.response, content: `${envelope.response.content}!` } };
+    const changed = { ...envelope, response: { content: "Supported response!", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 19, sha256: "f32e91553e55c5c345097029c44fbb5afb3e1c91c957cbc36752e5a91e4a05cc" }] } };
     const result = recheckReceipt({ receipt, envelope: changed, now: new Date("2026-08-02T00:30:00.000Z") });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.map((finding) => finding.code)).toContain("receipt.subject_changed");

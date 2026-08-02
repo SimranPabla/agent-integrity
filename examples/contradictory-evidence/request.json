@@ -2,7 +2,7 @@
   "envelope": {
     "protocolVersion": "1-alpha",
     "policy": { "version": 1, "sources": { "allowedRoots": ["docs"] }, "decisions": { "path": "integrity/decisions.yaml" }, "rules": { "requireEvidenceFor": ["factual"], "contradictions": "review", "rejectedDecisions": "block", "responseMutation": "block", "replay": "block" } },
-    "response": { "content": "The service is available.", "sections": [{ "sectionId": "answer", "substantive": true }] },
+    "response": { "content": "The service is available.", "sections": [{ "sectionId": "answer", "substantive": true, "byteStart": 0, "byteEnd": 25, "sha256": "5728632ff4b209df7b268ac2df58bba3ce1581727caf92526f8c5aee2ed479a8" }] },
     "sources": [{ "sourceId": "status", "path": "docs/status.md", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 20 }],
     "decisions": [],
     "evidence": [

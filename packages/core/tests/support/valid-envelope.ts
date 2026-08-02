@@ -15,7 +15,7 @@ export function validEnvelope(): IntegrityEnvelope {
         replay: "block",
       },
     },
-    response: { content: "Supported response", sections: [{ sectionId: "answer", substantive: true }] },
+    response: { content: "Supported response", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 18, sha256: "a31069ff26ded3cd55c0d40ebaa3430097950a210b8caaece07b27dedbb92766" }] },
     sources: [{ sourceId: "source-1", path: "docs/source.md", sha256: "a".repeat(64), size: 10 }],
     decisions: [],
     evidence: [{ evidenceId: "evidence-1", sourceId: "source-1" }],
