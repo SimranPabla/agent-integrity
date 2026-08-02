@@ -15,3 +15,22 @@ export interface IntegrityResult {
   readonly status: IntegrityStatus;
   readonly findings: readonly IntegrityFinding[];
 }
+
+export type DecisionAction = "activate" | "reject" | "supersede";
+
+export interface DecisionEvent {
+  readonly eventId: string;
+  readonly decisionId: string;
+  readonly revision: number;
+  readonly action: DecisionAction;
+  readonly supersededBy?: string;
+}
+
+export type DecisionStatus = "active" | "rejected" | "superseded";
+
+export interface DecisionState {
+  readonly decisionId: string;
+  readonly status: DecisionStatus;
+  readonly revision: number;
+  readonly supersededBy?: string;
+}
