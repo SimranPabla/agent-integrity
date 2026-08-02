@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { stdin, stdout } from "node:process";
+import { open } from "node:fs/promises";
 import {
   FileReceiptStore,
   parsePolicy,
@@ -14,6 +15,9 @@ import type {
 } from "@agent-integrity/protocol";
 
 type JsonRecord = Record<string, unknown>;
+const MAX_STDIN_BYTES = 1024 * 1024;
+const MAX_POLICY_BYTES = 1024 * 1024;
+const MAX_PATH_BYTES = 4096;
 
 function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -35,8 +39,15 @@ function invalidInput(message: string): never {
 }
 
 async function readRequest(): Promise<JsonRecord> {
-  let raw = "";
-  for await (const chunk of stdin) raw += String(chunk);
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of stdin) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
+    total += bytes.length;
+    if (total > MAX_STDIN_BYTES) return invalidInput(`stdin exceeds ${MAX_STDIN_BYTES} bytes`);
+    chunks.push(bytes);
+  }
+  const raw = Buffer.concat(chunks, total).toString("utf8");
   let value: unknown;
   try {
     value = JSON.parse(raw);
@@ -45,6 +56,32 @@ async function readRequest(): Promise<JsonRecord> {
   }
   if (!isRecord(value)) return invalidInput("stdin must contain one JSON object");
   return value;
+}
+
+function trustedPolicyPath(): string {
+  const args = process.argv.slice(3);
+  if (args.length !== 2 || args[0] !== "--trusted-policy" || typeof args[1] !== "string" ||
+      args[1].length === 0 || Buffer.byteLength(args[1], "utf8") > MAX_PATH_BYTES) {
+    return invalidInput("--trusted-policy <path> is required");
+  }
+  return args[1];
+}
+
+async function readTrustedPolicy(): Promise<ReturnType<typeof parsePolicy>> {
+  const path = trustedPolicyPath();
+  const handle = await open(path, "r");
+  try {
+    const info = await handle.stat();
+    if (info.size > MAX_POLICY_BYTES) return invalidInput(`trusted policy exceeds ${MAX_POLICY_BYTES} bytes`);
+    const buffer = Buffer.alloc(MAX_POLICY_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > MAX_POLICY_BYTES) return invalidInput(`trusted policy exceeds ${MAX_POLICY_BYTES} bytes`);
+    return parsePolicy(buffer.subarray(0, bytesRead).toString("utf8"));
+  } catch (error) {
+    return invalidInput(error instanceof Error ? error.message : "trusted policy could not be loaded");
+  } finally {
+    await handle.close();
+  }
 }
 
 function receiptBody(receipt: AlphaIntegrityReceipt): Omit<AlphaIntegrityReceipt, "receiptDigest"> {
@@ -71,7 +108,8 @@ async function main(): Promise<never> {
   if (command === "verify") {
     if (!("envelope" in request)) return invalidInput("envelope is required");
     if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
-    const result = await verifyTrustedEnvelope(request.envelope as IntegrityEnvelope, request.context as never);
+    const trustedPolicy = await readTrustedPolicy();
+    const result = await verifyTrustedEnvelope(request.envelope as IntegrityEnvelope, { ...request.context, trustedPolicy } as never);
     return emit(result, exitCode(result.status));
   }
 
@@ -83,13 +121,14 @@ async function main(): Promise<never> {
     if (!Number.isFinite(now.getTime())) return invalidInput("now must be a valid ISO timestamp");
     if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
     if (!isRecord(request.trust)) return invalidInput("trust with keys and receipt expectations is required");
-    if (typeof request.receiptStoreDirectory !== "string" || request.receiptStoreDirectory.length === 0) return invalidInput("receiptStoreDirectory is required for single-use consumption");
+    if (typeof request.receiptStoreDirectory !== "string" || request.receiptStoreDirectory.length === 0 || Buffer.byteLength(request.receiptStoreDirectory, "utf8") > MAX_PATH_BYTES) return invalidInput("receiptStoreDirectory is required and must not exceed 4096 bytes");
+    const trustedPolicy = await readTrustedPolicy();
     const result = await recheckTrustedReceipt({
       receipt: request.receipt as AlphaIntegrityReceipt,
       envelope: request.envelope as IntegrityEnvelope,
       now,
-      context: request.context as never,
-      trust: request.trust as never,
+      context: { ...request.context, trustedPolicy } as never,
+      trust: { ...request.trust, trustedPolicy } as never,
       receiptStore: new FileReceiptStore(request.receiptStoreDirectory),
     });
     return emit(result, exitCode(result.status));

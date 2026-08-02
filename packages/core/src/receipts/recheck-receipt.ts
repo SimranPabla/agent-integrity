@@ -3,6 +3,7 @@ import {
   type AlphaIntegrityReceipt,
   type IntegrityEnvelope,
   type IntegrityFinding,
+  type IntegrityPolicy,
   type ReceiptRecheckResult,
 } from "@agent-integrity/protocol";
 import { verify as verifySignature } from "node:crypto";
@@ -24,6 +25,8 @@ export interface RecheckReceiptOptions {
     readonly audience: string;
     readonly purpose: string;
     readonly engineVersion: string;
+    /** Policy loaded independently of the envelope and receipt. */
+    readonly trustedPolicy: IntegrityPolicy;
     readonly maxClockSkewMs?: number;
     readonly maxLifetimeMs?: number;
   };
@@ -37,6 +40,13 @@ function receiptBody(receipt: AlphaIntegrityReceipt): Omit<AlphaIntegrityReceipt
 function unsignedBody(receipt: AlphaIntegrityReceipt): Omit<AlphaIntegrityReceipt, "receiptDigest" | "signature"> {
   const { receiptDigest: _receiptDigest, signature: _signature, ...body } = receipt;
   return body;
+}
+
+function signaturePayload(receipt: AlphaIntegrityReceipt): unknown {
+  return {
+    protected: { algorithm: receipt.signature.algorithm, keyId: receipt.signature.keyId },
+    body: unsignedBody(receipt),
+  };
 }
 
 function blocked(code: string, message: string): IntegrityFinding {
@@ -65,7 +75,7 @@ function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
   } else {
     let valid = false;
     try {
-      valid = verifySignature(null, Buffer.from(canonicalJson(unsignedBody(receipt)), "utf8"), key, Buffer.from(receipt.signature.value, "base64"));
+      valid = verifySignature(null, Buffer.from(canonicalJson(signaturePayload(receipt)), "utf8"), key, Buffer.from(receipt.signature.value, "base64"));
     } catch { valid = false; }
     if (!valid) findings.push(blocked("receipt.invalid_signature", "Receipt signature is invalid"));
   }
@@ -73,7 +83,9 @@ function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
   if (receipt.audience !== options.trust.audience) findings.push(blocked("receipt.wrong_audience", "Receipt audience does not match"));
   if (receipt.purpose !== options.trust.purpose) findings.push(blocked("receipt.wrong_purpose", "Receipt purpose does not match"));
   if (receipt.engineVersion !== options.trust.engineVersion) findings.push(blocked("receipt.wrong_engine", "Receipt engine version does not match"));
-  if (receipt.policyDigest !== sha256Canonical(envelope.policy)) findings.push(blocked("receipt.policy_changed", "Receipt policy does not match"));
+  const trustedPolicyDigest = sha256Canonical(options.trust.trustedPolicy);
+  if (trustedPolicyDigest !== sha256Canonical(envelope.policy)) findings.push(blocked("receipt.policy_downgrade", "Envelope policy does not match the separately trusted policy"));
+  if (receipt.policyDigest !== trustedPolicyDigest) findings.push(blocked("receipt.policy_changed", "Receipt policy does not match the separately trusted policy"));
   const expiresAt = Date.parse(receipt.expiresAt);
   const createdAt = Date.parse(receipt.createdAt);
   const maxClockSkewMs = options.trust.maxClockSkewMs ?? 60_000;

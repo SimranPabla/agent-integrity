@@ -7,13 +7,13 @@
   "required": ["protocolVersion", "receiptVersion", "engineVersion", "issuer", "audience", "purpose", "nonce", "runId", "createdAt", "expiresAt", "policyDigest", "envelopeDigest", "verification", "signature", "receiptDigest"],
   "properties": {
     "protocolVersion": { "const": "1-alpha" }, "receiptVersion": { "const": "2-alpha" },
-    "engineVersion": { "type": "string", "minLength": 1 }, "issuer": { "type": "string", "minLength": 1 },
-    "audience": { "type": "string", "minLength": 1 }, "purpose": { "type": "string", "minLength": 1 },
-    "nonce": { "type": "string", "minLength": 1 }, "runId": { "type": "string", "minLength": 1 },
+    "engineVersion": { "type": "string", "minLength": 1, "maxLength": 256 }, "issuer": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "audience": { "type": "string", "minLength": 1, "maxLength": 256 }, "purpose": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "nonce": { "type": "string", "minLength": 1, "maxLength": 256 }, "runId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
     "createdAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" },
     "policyDigest": { "$ref": "#/$defs/sha256" }, "envelopeDigest": { "$ref": "#/$defs/sha256" },
     "verification": { "$ref": "#/$defs/result" },
-    "signature": { "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "value"], "properties": { "algorithm": { "const": "Ed25519" }, "keyId": { "type": "string", "minLength": 1 }, "value": { "type": "string", "minLength": 1 } } },
+    "signature": { "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "value"], "properties": { "algorithm": { "const": "Ed25519" }, "keyId": { "type": "string", "minLength": 1, "maxLength": 256 }, "value": { "type": "string", "minLength": 1 } } },
     "receiptDigest": { "$ref": "#/$defs/sha256" }
   },
   "$defs": {

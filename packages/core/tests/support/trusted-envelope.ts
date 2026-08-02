@@ -21,7 +21,7 @@ export async function trustedEnvelopeFixture(): Promise<{
   await writeFile(join(projectRoot, "integrity", "decisions.yaml"), registry);
   const base = validEnvelope();
   return {
-    context: { projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml" },
+    context: { projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml", trustedPolicy: base.policy },
     envelope: {
       ...base,
       decisionRegistryDigest: digest(registry),

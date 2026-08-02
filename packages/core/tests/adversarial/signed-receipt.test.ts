@@ -49,6 +49,31 @@ describe("signed receipt authentication", () => {
     expect(result.findings.map((finding) => finding.code)).toContain("receipt.unknown_key");
   });
 
+  it("binds the key ID into the Ed25519 signature", async () => {
+    const { receipt, envelope, context } = await issued("key-alias");
+    const aliasedWithoutDigest = { ...receipt, signature: { ...receipt.signature, keyId: "alias-key" } };
+    const { receiptDigest: _old, ...body } = aliasedWithoutDigest;
+    const aliased = { ...body, receiptDigest: sha256Canonical(body) };
+    const result = await recheckTrustedReceipt({
+      receipt: aliased, envelope, context,
+      trust: { ...receiptTrust, keys: { ...receiptTrust.keys, "alias-key": receiptTrust.keys["test-key-1"]! }, revokedKeyIds: ["test-key-1"] },
+      now: new Date("2026-08-02T00:30:00.000Z"),
+    });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.map((finding) => finding.code)).toContain("receipt.invalid_signature");
+  });
+
+  it("blocks an envelope policy downgrade against receipt trust configuration", async () => {
+    const { receipt, envelope, context } = await issued("policy-downgrade");
+    const downgraded = {
+      ...envelope,
+      policy: { ...envelope.policy, rules: { ...envelope.policy.rules, requireEvidenceFor: ["recommendation"] as const } },
+    };
+    const result = await recheckTrustedReceipt({ receipt, envelope: downgraded, context, trust: receiptTrust, now: new Date("2026-08-02T00:30:00.000Z") });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.map((finding) => finding.code)).toContain("receipt.policy_downgrade");
+  });
+
   it("rejects excessive lifetime at issuance", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-lifetime-"));
     const { envelope, context } = await trustedEnvelopeFixture();

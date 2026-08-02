@@ -58,7 +58,7 @@ Mitigation:
 
 Receipt `2-alpha` uses Ed25519 to authenticate a producer and binds issuer, audience, purpose, nonce, engine version, policy, envelope, outcome, and timestamps. Trusted creation and recheck recollect declared source bytes.
 
-The filesystem receipt store atomically changes a receipt from `issued` to `consumed` under a local lock. It is not a distributed transaction system and assumes every consumer uses the same protected store on one filesystem. Copying or restoring an older registry can restore previously consumed state. An actor who steals a signing key can forge its producer identity; an actor who changes the trusted-key configuration can alter the trust boundary.
+The filesystem receipt store uses atomic create-once records per run ID, nonce, receipt digest, and consumption event. It does not use a stealable stale global lock. Multi-file issuance is not one filesystem transaction: ordinary failures roll back owned reservations, while a process crash before the issued record is committed requires explicit `recoverInterruptedIssue` with the same receipt. It is not a distributed transaction system and assumes every consumer uses the same protected store on one filesystem. Copying or restoring older store state can restore previously consumed state. An actor who steals a signing key can forge its producer identity; an actor who changes the trusted-key configuration can alter the trust boundary.
 
 Do not treat a signature as proof that response claims are true. Production use still requires protected key custody, rotation, revocation distribution, and a documented trust-root ceremony.
 
@@ -86,7 +86,7 @@ The supported runtime is Node.js 22+. Browsers, edge runtimes, Deno, Bun, and ol
 
 ## Protocol stability
 
-`1-alpha` is not stable. Fields, finding codes, receipt behavior, and package APIs may change before `1.0`. Pin exact versions, store the engine version alongside receipts in host metadata, and test upgrades against conformance fixtures. The alpha receipt itself does not contain an engine-version field.
+`1-alpha` is not stable. Fields, finding codes, receipt behavior, and package APIs may change before `1.0`. Pin exact versions and test upgrades against conformance fixtures. Receipt `2-alpha` includes and signs `engineVersion`; the relying host must compare it to its separately configured expected engine version.
 
 ## Availability and resource exhaustion
 
@@ -94,7 +94,7 @@ The verifier is not designed as a hostile multi-tenant network service. Trusted 
 
 ## No automatic policy quality review
 
-The engine enforces the policy it receives. A permissive policy can produce weak passes; a strict policy can create excessive reviews or blocks. Start with deterministic hard failures and route uncertainty to `REVIEW`. Measure outcomes before tightening policy.
+Trusted verification enforces a normalized policy loaded separately by the host and rejects an envelope policy mismatch. A permissive trusted policy can still produce weak passes; a strict policy can create excessive reviews or blocks. Start with deterministic hard failures and route uncertainty to `REVIEW`. Measure outcomes before tightening policy.
 
 ## Alpha deployment recommendation
 

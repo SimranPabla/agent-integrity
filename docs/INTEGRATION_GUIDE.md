@@ -121,6 +121,7 @@ const context = {
   projectRoot: process.cwd(),
   allowedRoots: policy.sources.allowedRoots,
   decisionRegistryPath: policy.decisions.path,
+  trustedPolicy: policy,
 };
 const envelope = session.buildEnvelope();
 const verification = await verifyTrustedEnvelope(envelope, context);
@@ -159,7 +160,7 @@ A useful application invariant is: **the network response body comes only from `
 Build the repository, then call:
 
 ```bash
-node packages/cli/dist/cli.js verify < verify-request.json > verify-result.json
+node packages/cli/dist/cli.js verify --trusted-policy /absolute/project/integrity/policy.yaml < verify-request.json > verify-result.json
 status=$?
 ```
 
@@ -172,7 +173,7 @@ status=$?
 }
 ```
 
-The abbreviated envelope above is illustrative; use the complete protocol shape. The CLI resolves source paths relative to `projectRoot`, recollects every file, and fails closed if the context is absent or differs from policy.
+The abbreviated envelope above is illustrative; use the complete protocol shape. The CLI loads and normalizes the separately trusted policy file, ignores any stdin policy as a trust root, resolves source paths relative to `projectRoot`, recollects every file, and fails closed if the envelope policy or context differs from the trusted policy.
 
 Handle every exit code explicitly:
 
@@ -230,7 +231,7 @@ Signed alpha receipts require an Ed25519 private key at issuance, an explicit tr
 
 For `REVIEW`, show the human the findings, response, evidence mapping, and contradictions. The reviewer may approve outside the engine, request better evidence, or ask the agent to produce a new run. Do not mutate the verified envelope in place.
 
-For `BLOCKED`, fix the specific rule violation and create a fresh run identifier, nonce, and receipt. Do not overwrite or roll back the registry. The local store is atomic for concurrent processes using the same filesystem, but it is not a distributed database and backups must not restore older consumption state.
+For `BLOCKED`, fix the specific rule violation and create a fresh run identifier, nonce, and receipt. Do not overwrite consumed state. The local store uses atomic create-once files per run ID, nonce, receipt digest, and consumption event. It has no stale global lock to steal and does not rewrite an unbounded registry. It is not a distributed database: all consumers must use the same protected local filesystem, and backups must not restore older consumption state.
 
 For checker errors, preserve only safe diagnostic metadata, fail closed, and investigate. Source or response contents should not be placed in general application logs.
 

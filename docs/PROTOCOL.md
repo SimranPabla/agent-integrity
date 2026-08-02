@@ -124,7 +124,7 @@ A `2-alpha` receipt binds:
 
 Receipt creation requires trusted verification and recollects every declared source before signing and writing. Recheck verifies the Ed25519 signature against an explicit trusted-key set, rejects revoked/unknown keys, checks issuer/audience/purpose/engine/policy/time bindings, and recollects source bytes.
 
-Receipt `2-alpha` authenticates its configured producer and can be consumed exactly once through `FileReceiptStore`. Issuance reserves the run ID, nonce, and receipt digest in one atomically replaced local registry. A successful trusted recheck or SDK receipt release consumes it; concurrent or later reuse returns `BLOCKED`. This guarantee assumes one protected store on one host filesystem. Key custody, rotation, backup monotonicity, and trust-root distribution remain host responsibilities.
+Receipt `2-alpha` authenticates its configured producer and can be consumed exactly once through `FileReceiptStore`. The Ed25519 payload protects the algorithm, key ID, and complete receipt body. Issuance reserves the run ID and nonce with atomic create-once markers, then commits an issued-record file; normal failures roll back owned markers and an explicit recovery operation removes markers from an interrupted pre-commit issuance. Consumption atomically creates one digest-specific record, so exactly one concurrent consumer succeeds. This guarantee assumes one protected store on one host filesystem. Filesystem durability, crash-time recovery invocation, key custody, rotation, backup monotonicity, and trust-root distribution remain host responsibilities.
 
 ## Strict YAML policy
 

@@ -15,7 +15,8 @@ const envelope = {
 };
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
-const context = { projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml" };
+const policy = envelope.policy;
+const context = { projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml", trustedPolicy: policy };
 const source = await collectSource({ ...context, sourcePath: "docs/source.md" });
 envelope.sources = [{ sourceId: "source", ...source }];
 envelope.evidence = [{

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -137,5 +137,51 @@ describe("signed alpha receipts", () => {
     await expect(createReceipt(base)).rejects.toThrow(/receipt already exists/u);
     await import("node:fs/promises").then(({ unlink }) => unlink(path));
     await expect(createReceipt(base)).resolves.toMatchObject({ runId: "retryable" });
+  });
+
+  it("allows exactly one concurrent issuance for a run ID and nonce", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-concurrent-issue-"));
+    const sourceStore = new FileReceiptStore(join(directory, "source-store"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const receipt = await createReceipt({ runId: "concurrent", path: join(directory, "receipt.json"), envelope, verification, context, receiptStore: sourceStore, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const target = new FileReceiptStore(join(directory, "target-store"));
+    const results = await Promise.allSettled([target.issue(receipt), target.issue(receipt)]);
+    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+  });
+
+  it("does not steal or delete a stalled legacy lock file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-no-lock-steal-"));
+    const storePath = join(directory, "store");
+    await mkdir(storePath);
+    await writeFile(join(storePath, ".lock"), "live-owner");
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    await createReceipt({ runId: "no-lock", path: join(directory, "receipt.json"), envelope, verification, context, receiptStore: new FileReceiptStore(storePath), ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    expect(await readFile(join(storePath, ".lock"), "utf8")).toBe("live-owner");
+  });
+
+  it("recovers an interrupted issuance without orphaning run ID or nonce", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-recover-issue-"));
+    const storePath = join(directory, "store");
+    const store = new FileReceiptStore(storePath);
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const receipt = await createReceipt({ runId: "recoverable", path: join(directory, "receipt.json"), envelope, verification, context, receiptStore: store, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    await rm(join(storePath, "issued", `${receipt.receiptDigest}.json`));
+    await store.recoverInterruptedIssue(receipt);
+    await expect(store.issue(receipt)).resolves.toBeUndefined();
+  });
+
+  it("rolls back reservations when the receipt parent is a file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-parent-file-"));
+    const parent = join(directory, "not-a-directory");
+    await writeFile(parent, "file");
+    const receiptStore = new FileReceiptStore(join(directory, "store"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const base = { runId: "parent-file", envelope, verification, context, receiptStore, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") };
+    await expect(createReceipt({ ...base, path: join(parent, "receipt.json") })).rejects.toThrow();
+    await expect(createReceipt({ ...base, path: join(directory, "retry.json") })).resolves.toMatchObject({ runId: "parent-file" });
   });
 });

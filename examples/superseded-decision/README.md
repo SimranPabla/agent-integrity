@@ -6,7 +6,7 @@ This example shows lifecycle validation inside one current decision-registry sna
 
 ```bash
 npm run build
-node packages/cli/dist/cli.js verify < examples/superseded-decision/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml < examples/superseded-decision/request.json
 echo $?
 ```
 

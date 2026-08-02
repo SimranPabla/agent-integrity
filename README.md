@@ -86,8 +86,8 @@ The npm packages are not published yet. Use the source installation below during
 7. Run the negative examples:
 
    ```bash
-   node packages/cli/dist/cli.js verify < examples/contradictory-evidence/request.json
-   node packages/cli/dist/cli.js verify < examples/superseded-decision/request.json
+   node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml < examples/contradictory-evidence/request.json
+   node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml < examples/superseded-decision/request.json
    node examples/tampered-response/index.mjs
    ```
 
@@ -144,6 +144,7 @@ const context = {
   projectRoot: process.cwd(),
   allowedRoots: parsedPolicy.sources.allowedRoots,
   decisionRegistryPath: parsedPolicy.decisions.path,
+  trustedPolicy: parsedPolicy,
 };
 // sourceRecord must come from collectSource(context + sourcePath), and each
 // evidence item must include an exact byte anchor into that collected file.
@@ -166,15 +167,17 @@ The snippet above is an architectural outline, not copy-paste code. Follow the c
 The CLI uses one JSON request on stdin and one JSON result on stdout. It does not echo source or response content.
 
 ```bash
-node packages/cli/dist/cli.js <command> < request.json
+node packages/cli/dist/cli.js <command> --trusted-policy integrity/policy.yaml < request.json
 ```
 
 Commands:
 
 - `validate-policy`: parse and validate the strict YAML policy.
-- `verify`: validate an envelope and recollect every source using the required trusted `context`.
-- `recheck`: compare a receipt with the envelope and freshly recollected source bytes.
-- `inspect-receipt`: validate and summarize a receipt without exposing response content.
+- `verify`: load a separately trusted policy file, validate the envelope against it, and recollect every source.
+- `recheck`: load a separately trusted policy file, authenticate a receipt, and recollect source bytes.
+- `inspect-receipt`: summarize fields and compare the public self-digest; it does not authenticate the producer.
+
+`verify` and `recheck` require `--trusted-policy <path>`. A policy embedded in stdin is never treated as the trust root. CLI stdin and trusted policy files are each limited to 1 MiB.
 
 Current alpha exit codes:
 

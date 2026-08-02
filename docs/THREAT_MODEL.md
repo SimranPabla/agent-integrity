@@ -78,6 +78,8 @@ The model, formatter, application, or attacker may change the response after ver
 
 An old receipt may be presented for a new response. Trusted recheck rejects changed or expired input and atomically consumes an authentic receipt in the configured local filesystem store. Concurrent or later reuse is blocked. This assumes every consumer uses the same protected store and that an older registry backup is never restored over newer state.
 
+An agent may also weaken the policy embedded in its envelope. Trusted verification rejects this by comparing the embedded policy with a normalized policy loaded independently by the host. If the host itself loads policy from attacker-controlled input, that trust boundary is already lost.
+
 ### Receipt overwrite
 
 An attacker may replace a receipt at the same path. Receipt writers use create-new behavior and refuse overwrite.

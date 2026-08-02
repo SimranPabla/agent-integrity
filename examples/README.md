@@ -28,7 +28,7 @@ Expected: exit `0`, status `PASS`, and a released response.
 Shows a contradiction that exists in the submitted evidence but is not disclosed in the response. Policy routes it to human review.
 
 ```bash
-node packages/cli/dist/cli.js verify < examples/contradictory-evidence/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml < examples/contradictory-evidence/request.json
 echo $?
 ```
 
@@ -39,7 +39,7 @@ Expected: exit `2`, status `REVIEW`, and no response content in CLI output.
 Shows a claim relying on a decision that has been replaced.
 
 ```bash
-node packages/cli/dist/cli.js verify < examples/superseded-decision/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml < examples/superseded-decision/request.json
 echo $?
 ```
 

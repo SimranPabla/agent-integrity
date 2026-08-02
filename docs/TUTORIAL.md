@@ -57,9 +57,9 @@ Expected result contains:
 ## 4. Exercise review and blocking
 
 ```bash
-node packages/cli/dist/cli.js verify < examples/contradictory-evidence/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml < examples/contradictory-evidence/request.json
 echo $?
-node packages/cli/dist/cli.js verify < examples/superseded-decision/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml < examples/superseded-decision/request.json
 echo $?
 node examples/tampered-response/index.mjs
 ```

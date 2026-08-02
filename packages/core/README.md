@@ -4,6 +4,8 @@ Deterministic verification, trusted filesystem/decision collection, canonical ha
 
 Use `verifyTrustedEnvelope` for release decisions. The lower-level structural verifier does not recollect sources or load the trusted decision registry and must not be used as a release boundary.
 
+The trusted context must include `trustedPolicy`, parsed from host-controlled configuration independently of the envelope. Verification rejects any embedded policy mismatch or downgrade.
+
 ```js
 import { collectSource, verifyTrustedEnvelope } from "@agent-integrity/core";
 ```
