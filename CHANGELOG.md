@@ -9,7 +9,10 @@ All notable changes will be documented here. The project follows Semantic Versio
 - Added trusted source recollection and evidence byte anchors.
 - Added trusted decision-registry loading and claim-to-decision references.
 - Added Ed25519-signed receipts with issuer, audience, purpose, engine, policy, and expiry binding.
-- Added atomic issuance and exactly-once local receipt consumption.
+- Added serialized create-once local issuance with crash recovery and exactly-once local receipt consumption through one protected monotonic store.
 - Added runnable examples, protocol schema, compatibility/migration guidance, and release checks.
+- Added a tag-only npm trusted-publishing workflow that remains fail-closed while publication placeholders or external npm/GitHub configuration are unresolved.
+- Upgraded package checks to pack real tarballs, reject incremental build state, install all packages in an isolated temporary project, import public exports, and execute the installed CLI.
+- Marked the workspace root private to prevent accidental monorepo-root publication.
 
 No npm package or public repository release exists yet.

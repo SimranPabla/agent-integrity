@@ -1,6 +1,7 @@
 {
   "name": "agent-integrity",
   "version": "0.1.0-alpha.0",
+  "private": true,
   "description": "Deterministic integrity verification and release controls for AI-agent responses.",
   "license": "Apache-2.0",
   "author": "Simranjit Singh",

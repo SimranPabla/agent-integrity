@@ -247,7 +247,7 @@ For checker errors, preserve only safe diagnostic metadata, fail closed, and inv
 - [ ] Contradictions are surfaced according to policy.
 - [ ] Draft response bytes never reach users before verification.
 - [ ] `REVIEW`, `BLOCKED`, and errors release nothing.
-- [ ] Receipt files and run-ID markers are stored in host-protected storage; repeated use is not assumed to be prevented.
+- [ ] Every receipt consumer uses one protected, shared, monotonic local `FileReceiptStore`; exactly one successful consumption is enforced only inside that store, and restoring an older backup can reopen replay.
 - [ ] Sensitive envelope data is excluded from logs.
 - [ ] The application is tested against tampering, changed-envelope reuse, expiry, and repeated-use behavior.
 - [ ] Teams understand that `PASS` does not prove truth or evidence completeness.

@@ -9,7 +9,7 @@
   "bugs": { "url": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity/issues" },
   "keywords": ["ai-agents", "integrity", "verification", "cli"],
   "type": "module",
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "!dist/.tsbuildinfo"],
   "bin": {
     "integrity": "./dist/cli.js"
   },
