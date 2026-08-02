@@ -6,6 +6,7 @@
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@agent-integrity/protocol": "0.0.0-private"
+    "@agent-integrity/protocol": "0.0.0-private",
+    "yaml": "^2.8.1"
   }
 }
