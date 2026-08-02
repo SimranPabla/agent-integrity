@@ -231,7 +231,7 @@ Signed alpha receipts require an Ed25519 private key at issuance, an explicit tr
 
 For `REVIEW`, show the human the findings, response, evidence mapping, and contradictions. The reviewer may approve outside the engine, request better evidence, or ask the agent to produce a new run. Do not mutate the verified envelope in place.
 
-For `BLOCKED`, fix the specific rule violation and create a fresh run identifier, nonce, and receipt. Do not overwrite consumed state. The local store uses atomic create-once files per run ID, nonce, receipt digest, and consumption event. It has no stale global lock to steal and does not rewrite an unbounded registry. It is not a distributed database: all consumers must use the same protected local filesystem, and backups must not restore older consumption state.
+For `BLOCKED`, fix the specific violation and create a fresh run identifier and nonce. Do not overwrite consumed state. Every operation uses the same owner-token store lock, which is never stolen based on age. If a crash leaves it behind, stop all users and recover it only with the exact token. Output failure retains committed issuance; finish it with `completeReceiptFile`. It is not a distributed database, and backups must not restore older consumption state.
 
 For checker errors, preserve only safe diagnostic metadata, fail closed, and investigate. Source or response contents should not be placed in general application logs.
 

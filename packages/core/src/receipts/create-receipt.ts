@@ -104,11 +104,7 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
   try {
     await store.completeReceiptFile(receipt.receiptDigest, options.path);
   } catch (error) {
-    await store.rollbackIssue(receipt.receiptDigest);
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new Error(`receipt already exists: ${options.path}`);
-    }
-    throw error;
+    throw new Error(`receipt was issued but output completion failed; recover it with completeReceiptFile: ${error instanceof Error ? error.message : "unknown failure"}`);
   }
   return receipt;
 }

@@ -12,6 +12,7 @@ interface StoredReceipt {
   readonly quotaSlot: number;
   readonly transactionId: string;
   readonly receipt?: AlphaIntegrityReceipt;
+  readonly cleanupPaths?: readonly string[];
 }
 
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -47,14 +48,14 @@ export class FileReceiptStore {
     this.#maxRecords = maxRecords;
   }
 
-  private path(kind: "runs" | "nonces" | "issued" | "consumed" | "quota" | "transactions" | "recovery", value: string): string {
+  private path(kind: "runs" | "nonces" | "issued" | "consumed" | "quota" | "transactions" | "recovery" | "cleanup", value: string): string {
     const raw = kind === "issued" || kind === "consumed" ? value : markerName(value);
     return join(this.directory, kind, `${raw}.json`);
   }
 
   private async initialize(): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await Promise.all(["runs", "nonces", "issued", "consumed", "quota", "transactions", "recovery", ".staging", ".quarantine"].map((name) => mkdir(join(this.directory, name), { recursive: true, mode: 0o700 })));
+    await Promise.all(["runs", "nonces", "issued", "consumed", "quota", "transactions", "recovery", "cleanup", ".staging"].map((name) => mkdir(join(this.directory, name), { recursive: true, mode: 0o700 })));
   }
 
   private async syncDirectory(path: string): Promise<void> {
@@ -89,24 +90,25 @@ export class FileReceiptStore {
 
   /** Removes abandoned staging files only during an operator-enforced offline window. */
   async cleanupStaging(options: { readonly offlineExclusive: true }): Promise<number> {
-    await this.initialize();
     if (options?.offlineExclusive !== true) throw new Error("offlineExclusive staging cleanup is required");
-    const staging = join(this.directory, ".staging");
-    const directory = await opendir(staging);
-    let inspected = 0;
-    let removed = 0;
-    try {
-      for await (const entry of directory) {
-        inspected += 1;
-        if (inspected > this.#maxRecords) throw new Error("staging entries exceed configured inspection limit");
-        if (entry.isFile() && entry.name.startsWith(".integrity-") && entry.name.endsWith(".tmp")) {
-          await rm(join(staging, entry.name));
-          removed += 1;
+    return this.withLock(async () => {
+      const staging = join(this.directory, ".staging");
+      const directory = await opendir(staging);
+      let inspected = 0;
+      let removed = 0;
+      try {
+        for await (const entry of directory) {
+          inspected += 1;
+          if (inspected > this.#maxRecords) throw new Error("staging entries exceed configured inspection limit");
+          if (entry.isFile() && entry.name.startsWith(".integrity-") && entry.name.endsWith(".tmp")) {
+            await rm(join(staging, entry.name));
+            removed += 1;
+          }
         }
-      }
-    } finally { await directory.close().catch(() => undefined); }
-    await this.syncDirectory(staging);
-    return removed;
+      } finally { await directory.close().catch(() => undefined); }
+      await this.syncDirectory(staging);
+      return removed;
+    });
   }
 
   private async readRecord(path: string): Promise<StoredReceipt> {
@@ -121,6 +123,43 @@ export class FileReceiptStore {
       if (value.version !== 3 || typeof value.runId !== "string" || typeof value.nonce !== "string" || !SHA256.test(value.receiptDigest ?? "") || !Number.isSafeInteger(value.quotaSlot) || typeof value.transactionId !== "string") throw new Error("invalid receipt store state");
       return value as StoredReceipt;
     } finally { await handle.close(); }
+  }
+
+  private async readJson(path: string): Promise<Record<string, unknown>> {
+    const handle = await open(path, "r");
+    try {
+      const info = await handle.stat();
+      if (info.size > this.#maxStateBytes) throw new Error("receipt store state exceeds configured limit");
+      return JSON.parse(await handle.readFile("utf8")) as Record<string, unknown>;
+    } finally { await handle.close(); }
+  }
+
+  private async acquireLock(): Promise<string> {
+    await this.initialize();
+    const ownerToken = randomUUID();
+    await this.publishJson(join(this.directory, ".store-lock.json"), { version: 1, ownerToken }, "lock", "receipt store is locked; never steal a live or abandoned lock");
+    return ownerToken;
+  }
+
+  private async releaseLock(ownerToken: string): Promise<void> {
+    const lockPath = join(this.directory, ".store-lock.json");
+    const lock = await this.readJson(lockPath);
+    if (lock.ownerToken !== ownerToken) throw new Error("receipt store lock ownership changed");
+    await rm(lockPath);
+    await this.syncDirectory(this.directory);
+  }
+
+  private async withLock<T>(operation: (ownerToken: string) => Promise<T>): Promise<T> {
+    const ownerToken = await this.acquireLock();
+    try { return await operation(ownerToken); }
+    finally { await this.releaseLock(ownerToken); }
+  }
+
+  /** Offline operator action for a lock left by a crashed process. Exact token possession is required. */
+  async recoverAbandonedLock(options: { readonly offlineExclusive: true; readonly ownerToken: string }): Promise<void> {
+    await this.initialize();
+    if (options?.offlineExclusive !== true || typeof options.ownerToken !== "string") throw new Error("offlineExclusive and exact ownerToken are required");
+    await this.releaseLock(options.ownerToken);
   }
 
   private record(receipt: AlphaIntegrityReceipt, quotaSlot: number, transactionId: string): StoredReceipt {
@@ -139,96 +178,108 @@ export class FileReceiptStore {
     throw new Error(`receipt store has reached its ${this.#maxRecords} record limit`);
   }
 
-  private async removeOwnedExclusive(path: string, expected: StoredReceipt, claimId: string): Promise<void> {
-    const quarantine = join(this.directory, ".quarantine", `${claimId}-${randomUUID()}.json`);
-    try { await rename(path, quarantine); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
-    const actual = await this.readRecord(quarantine);
-    if (actual.receiptDigest !== expected.receiptDigest || actual.transactionId !== expected.transactionId) {
-      await link(quarantine, path).catch(() => undefined);
-      throw new Error("recovery ownership changed while claiming marker");
+  private async quotaFor(transactionId: string): Promise<StoredReceipt | undefined> {
+    for (let slot = 0; slot < this.#maxRecords; slot += 1) {
+      try { const record = await this.readRecord(this.path("quota", String(slot))); if (record.transactionId === transactionId) return record; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
-    await rm(quarantine);
-    await this.syncDirectory(dirname(path));
+    return undefined;
+  }
+
+  private async cleanupOwned(record: StoredReceipt, paths: readonly string[]): Promise<void> {
+    const journalPath = this.path("cleanup", record.receiptDigest);
+    const journal = { ...record, cleanupPaths: paths };
+    try { await this.publishJson(journalPath, journal, "cleanup-journal", "cleanup journal exists"); }
+    catch (error) {
+      if (!/cleanup journal exists/u.test((error as Error).message)) throw error;
+      const existing = await this.readRecord(journalPath);
+      if (existing.transactionId !== record.transactionId) throw new Error("cleanup journal ownership mismatch");
+    }
+    for (const path of paths) {
+      try {
+        const actual = await this.readRecord(path);
+        await this.options.faultInjector?.("cleanup:after-ownership-read");
+        if (actual.transactionId !== record.transactionId || actual.receiptDigest !== record.receiptDigest) throw new Error("cleanup ownership mismatch");
+        await rm(path);
+        await this.syncDirectory(dirname(path));
+        await this.options.faultInjector?.("cleanup:after-removal");
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    }
+    await rm(journalPath);
+    await this.syncDirectory(dirname(journalPath));
   }
 
   async issue(receipt: AlphaIntegrityReceipt): Promise<void> {
-    await this.initialize();
-    const transactionId = randomUUID();
-    const record = await this.reserveQuota(receipt, transactionId);
-    const transactionPath = this.path("transactions", receipt.receiptDigest);
-    const runPath = this.path("runs", receipt.runId);
-    const noncePath = this.path("nonces", receipt.nonce);
-    const issuedPath = this.path("issued", receipt.receiptDigest);
-    let transactionReserved = false;
-    let runReserved = false;
-    let nonceReserved = false;
-    let publishedFault = false;
-    try {
-      await this.publishJson(transactionPath, record, "transaction", "issuance transaction already exists");
-      transactionReserved = true;
-      await this.publishJson(runPath, record, "run", `run ID already exists: ${receipt.runId}`);
-      runReserved = true;
-      await this.publishJson(noncePath, record, "nonce", `receipt nonce already exists: ${receipt.nonce}`);
-      nonceReserved = true;
-      await this.options.faultInjector?.("issue:before-issued");
-      await this.publishJson(issuedPath, { ...record, receipt }, "issued", "receipt is already issued");
-    } catch (error) {
-      publishedFault = typeof (error as { publishedPath?: unknown }).publishedPath === "string";
-      if (!publishedFault) {
-        const claimId = randomUUID();
-        if (nonceReserved) await this.removeOwnedExclusive(noncePath, record, claimId);
-        if (runReserved) await this.removeOwnedExclusive(runPath, record, claimId);
-        if (transactionReserved) await this.removeOwnedExclusive(transactionPath, record, claimId);
-        await this.removeOwnedExclusive(this.path("quota", String(record.quotaSlot)), record, claimId);
+    return this.withLock(async () => {
+      const transactionId = randomUUID();
+      const intent = this.record(receipt, -1, transactionId);
+      const transactionPath = this.path("transactions", receipt.receiptDigest);
+      await this.publishJson(transactionPath, intent, "transaction", "issuance transaction already exists");
+      const record = await this.reserveQuota(receipt, transactionId);
+      try {
+        await this.publishJson(this.path("runs", receipt.runId), record, "run", `run ID already exists: ${receipt.runId}`);
+        await this.publishJson(this.path("nonces", receipt.nonce), record, "nonce", `receipt nonce already exists: ${receipt.nonce}`);
+        await this.options.faultInjector?.("issue:before-issued");
+        await this.publishJson(this.path("issued", receipt.receiptDigest), { ...record, receipt }, "issued", "receipt is already issued");
+      } catch (error) {
+        if (typeof (error as { publishedPath?: unknown }).publishedPath !== "string") {
+          await this.cleanupOwned(record, [this.path("nonces", receipt.nonce), this.path("runs", receipt.runId), transactionPath, this.path("quota", String(record.quotaSlot))]);
+        }
+        throw error;
       }
-      throw error;
-    }
+    });
   }
 
   async rollbackIssue(receiptDigest: string): Promise<void> {
-    await this.initialize();
-    const issued = await this.readRecord(this.path("issued", receiptDigest));
-    try { await stat(this.path("consumed", receiptDigest)); throw new Error("cannot roll back a consumed receipt"); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    const claimId = randomUUID();
-    for (const path of [this.path("issued", receiptDigest), this.path("nonces", issued.nonce), this.path("runs", issued.runId), this.path("transactions", receiptDigest), this.path("quota", String(issued.quotaSlot))]) await this.removeOwnedExclusive(path, issued, claimId);
+    return this.withLock(async () => {
+      const issued = await this.readRecord(this.path("issued", receiptDigest));
+      try { await stat(this.path("consumed", receiptDigest)); throw new Error("cannot roll back a consumed receipt"); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await this.cleanupOwned(issued, [this.path("issued", receiptDigest), this.path("nonces", issued.nonce), this.path("runs", issued.runId), this.path("transactions", receiptDigest), this.path("quota", String(issued.quotaSlot))]);
+    });
   }
 
-  /** Offline-only recovery. The caller must prove no issuer is active for this store. */
+  async reconcileCleanup(receiptDigest: string): Promise<void> {
+    return this.withLock(async () => {
+      const journal = await this.readRecord(this.path("cleanup", receiptDigest));
+      if (!Array.isArray(journal.cleanupPaths)) throw new Error("cleanup journal is malformed");
+      await this.cleanupOwned(journal, journal.cleanupPaths);
+    });
+  }
+
   async recoverInterruptedIssue(receipt: AlphaIntegrityReceipt, options: { readonly offlineExclusive: true; readonly transactionId: string }): Promise<void> {
-    await this.initialize();
     if (options?.offlineExclusive !== true || typeof options.transactionId !== "string") throw new Error("offlineExclusive recovery and transactionId are required");
-    const transaction = await this.readRecord(this.path("transactions", receipt.receiptDigest));
-    if (transaction.transactionId !== options.transactionId || transaction.receiptDigest !== receipt.receiptDigest) throw new Error("recovery transaction ownership mismatch");
-    const recoveryPath = this.path("recovery", receipt.receiptDigest);
-    await this.publishJson(recoveryPath, transaction, "recovery", "recovery is already claimed");
-    try {
+    return this.withLock(async () => {
+      const intent = await this.readRecord(this.path("transactions", receipt.receiptDigest));
+      if (intent.transactionId !== options.transactionId) throw new Error("recovery transaction ownership mismatch");
       try { await stat(this.path("issued", receipt.receiptDigest)); throw new Error("cannot recover a completed issuance"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      const current = await this.readRecord(this.path("transactions", receipt.receiptDigest));
-      if (current.transactionId !== options.transactionId) throw new Error("recovery transaction changed");
-      for (const path of [this.path("nonces", receipt.nonce), this.path("runs", receipt.runId), this.path("transactions", receipt.receiptDigest), this.path("quota", String(transaction.quotaSlot))]) await this.removeOwnedExclusive(path, transaction, options.transactionId);
-    } finally { await this.removeOwnedExclusive(recoveryPath, transaction, options.transactionId); }
+      const quota = await this.quotaFor(options.transactionId);
+      const record = quota ?? intent;
+      const paths = [this.path("nonces", receipt.nonce), this.path("runs", receipt.runId), this.path("transactions", receipt.receiptDigest), ...(quota === undefined ? [] : [this.path("quota", String(quota.quotaSlot))])];
+      await this.cleanupOwned(record, paths);
+    });
   }
 
   async completeReceiptFile(receiptDigest: string, outputPath: string): Promise<AlphaIntegrityReceipt> {
-    await this.initialize();
-    const record = await this.readRecord(this.path("issued", receiptDigest));
-    const receipt = record.receipt;
-    if (receipt === undefined || receipt.receiptDigest !== receiptDigest) throw new Error("issued receipt payload is missing or mismatched");
-    const { receiptDigest: _digest, ...signed } = receipt;
-    if (sha256Canonical(signed) !== receiptDigest) throw new Error("issued receipt payload failed its digest check");
-    await mkdir(dirname(outputPath), { recursive: true });
-    await this.publishJson(outputPath, receipt, "receipt-output", `receipt already exists: ${outputPath}`, dirname(outputPath));
-    return receipt;
+    return this.withLock(async () => {
+      const record = await this.readRecord(this.path("issued", receiptDigest));
+      const receipt = record.receipt;
+      if (receipt === undefined || receipt.receiptDigest !== receiptDigest) throw new Error("issued receipt payload is missing or mismatched");
+      const { receiptDigest: _digest, ...signed } = receipt;
+      if (sha256Canonical(signed) !== receiptDigest) throw new Error("issued receipt payload failed its digest check");
+      await mkdir(dirname(outputPath), { recursive: true });
+      await this.publishJson(outputPath, receipt, "receipt-output", `receipt already exists: ${outputPath}`, dirname(outputPath));
+      return receipt;
+    });
   }
 
   async consume(receipt: AlphaIntegrityReceipt, consumedAt: Date): Promise<void> {
-    await this.initialize();
-    if (!(consumedAt instanceof Date) || !Number.isFinite(consumedAt.getTime())) throw new Error("consumedAt must be a valid Date");
-    const issued = await this.readRecord(this.path("issued", receipt.receiptDigest));
-    if (issued.runId !== receipt.runId || issued.nonce !== receipt.nonce) throw new Error("receipt registry binding mismatch");
-    await this.publishJson(this.path("consumed", receipt.receiptDigest), { ...issued, consumedAt: consumedAt.toISOString() }, "consumed", "receipt has already been consumed");
+    return this.withLock(async () => {
+      if (!(consumedAt instanceof Date) || !Number.isFinite(consumedAt.getTime())) throw new Error("consumedAt must be a valid Date");
+      const issued = await this.readRecord(this.path("issued", receipt.receiptDigest));
+      if (issued.runId !== receipt.runId || issued.nonce !== receipt.nonce) throw new Error("receipt registry binding mismatch");
+      await this.publishJson(this.path("consumed", receipt.receiptDigest), { ...issued, consumedAt: consumedAt.toISOString() }, "consumed", "receipt has already been consumed");
+    });
   }
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -127,7 +127,7 @@ describe("signed alpha receipts", () => {
     expect(replay.findings.map((finding) => finding.code)).toContain("receipt.replayed");
   });
 
-  it("rolls back registry issuance when the receipt output cannot be written", async () => {
+  it("retains authoritative issuance when receipt output cannot be written", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-rollback-"));
     const receiptStore = new FileReceiptStore(join(directory, "store"));
     const path = join(directory, "receipt.json");
@@ -135,9 +135,12 @@ describe("signed alpha receipts", () => {
     const { envelope, context } = await trustedEnvelopeFixture();
     const verification = await verifyTrustedEnvelope(envelope, context);
     const base = { runId: "retryable", path, envelope, verification, context, receiptStore, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") };
-    await expect(createReceipt(base)).rejects.toThrow(/receipt already exists/u);
+    await expect(createReceipt(base)).rejects.toThrow(/was issued but output completion failed/u);
     await import("node:fs/promises").then(({ unlink }) => unlink(path));
-    await expect(createReceipt(base)).resolves.toMatchObject({ runId: "retryable" });
+    const [issuedName] = await readdir(join(directory, "store", "issued"));
+    const digest = issuedName!.replace(/\.json$/u, "");
+    await expect(receiptStore.completeReceiptFile(digest, path)).resolves.toMatchObject({ runId: "retryable" });
+    await expect(createReceipt({ ...base, path: join(directory, "other.json") })).rejects.toThrow(/transaction.*exists/u);
   });
 
   it("allows exactly one concurrent issuance for a run ID and nonce", async () => {
@@ -160,6 +163,17 @@ describe("signed alpha receipts", () => {
     const verification = await verifyTrustedEnvelope(envelope, context);
     await createReceipt({ runId: "no-lock", path: join(directory, "receipt.json"), envelope, verification, context, receiptStore: new FileReceiptStore(storePath), ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
     expect(await readFile(join(storePath, ".lock"), "utf8")).toBe("live-owner");
+  });
+
+  it("requires the exact owner token to recover an abandoned store lock", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-abandoned-lock-"));
+    const storePath = join(directory, "store");
+    await mkdir(storePath);
+    await writeFile(join(storePath, ".store-lock.json"), JSON.stringify({ version: 1, ownerToken: "exact-owner" }));
+    const store = new FileReceiptStore(storePath);
+    await expect(store.recoverAbandonedLock({ offlineExclusive: true, ownerToken: "wrong" })).rejects.toThrow(/ownership changed/u);
+    expect(JSON.parse(await readFile(join(storePath, ".store-lock.json"), "utf8")).ownerToken).toBe("exact-owner");
+    await expect(store.recoverAbandonedLock({ offlineExclusive: true, ownerToken: "exact-owner" })).resolves.toBeUndefined();
   });
 
   it("recovers an interrupted issuance without orphaning run ID or nonce", async () => {
@@ -197,13 +211,12 @@ describe("signed alpha receipts", () => {
     const first = await createReceipt({ runId: "quota-one", path: join(directory, "one.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "source-one")), ...receiptSigningOptions, nonce: "quota-nonce-one", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
     const second = await createReceipt({ runId: "quota-two", path: join(directory, "two.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "source-two")), ...receiptSigningOptions, nonce: "quota-nonce-two", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
     const target = new FileReceiptStore(join(directory, "target"), { maxRecords: 1 });
-    const results = await Promise.allSettled([target.issue(first), target.issue(second)]);
-    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
-    expect(results.find((result) => result.status === "rejected")?.reason.message).toMatch(/record limit/u);
+    await target.issue(first);
+    await expect(target.issue(second)).rejects.toThrow(/record limit/u);
     expect(() => new FileReceiptStore(join(directory, "bad"), { maxRecords: 0 })).toThrow(/maxRecords/u);
   });
 
-  it("rolls back reservations when the receipt parent is a file", async () => {
+  it("retains issuance when the receipt parent is a file", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-parent-file-"));
     const parent = join(directory, "not-a-directory");
     await writeFile(parent, "file");
@@ -211,8 +224,10 @@ describe("signed alpha receipts", () => {
     const { envelope, context } = await trustedEnvelopeFixture();
     const verification = await verifyTrustedEnvelope(envelope, context);
     const base = { runId: "parent-file", envelope, verification, context, receiptStore, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") };
-    await expect(createReceipt({ ...base, path: join(parent, "receipt.json") })).rejects.toThrow();
-    await expect(createReceipt({ ...base, path: join(directory, "retry.json") })).resolves.toMatchObject({ runId: "parent-file" });
+    await expect(createReceipt({ ...base, path: join(parent, "receipt.json") })).rejects.toThrow(/was issued/u);
+    const [issuedName] = await readdir(join(directory, "store", "issued"));
+    await expect(receiptStore.completeReceiptFile(issuedName!.replace(/\.json$/u, ""), join(directory, "retry.json"))).resolves.toMatchObject({ runId: "parent-file" });
+    await expect(createReceipt({ ...base, path: join(directory, "other.json") })).rejects.toThrow(/transaction.*exists/u);
   });
 
   it("does not let recovery race a live issuer paused before commit", async () => {
@@ -227,8 +242,10 @@ describe("signed alpha receipts", () => {
     const store = new FileReceiptStore(join(directory, "target"), { faultInjector: async (point) => { if (point === "issue:before-issued") { reached(); await paused; } } });
     const issuing = store.issue(seed);
     await atPause;
-    await expect(store.recoverInterruptedIssue(seed, undefined as never)).rejects.toThrow(/offlineExclusive/u);
-    await expect(new FileReceiptStore(join(directory, "target")).issue(seed)).rejects.toThrow(/(run ID|transaction).*exists/u);
+    const transactionName = createHash("sha256").update(seed.receiptDigest).digest("hex");
+    const transaction = JSON.parse(await readFile(join(directory, "target", "transactions", `${transactionName}.json`), "utf8"));
+    await expect(new FileReceiptStore(join(directory, "target")).recoverInterruptedIssue(seed, { offlineExclusive: true, transactionId: transaction.transactionId })).rejects.toThrow(/store is locked/u);
+    await expect(new FileReceiptStore(join(directory, "target")).issue(seed)).rejects.toThrow(/store is locked/u);
     release();
     await expect(issuing).resolves.toBeUndefined();
   });
@@ -258,5 +275,27 @@ describe("signed alpha receipts", () => {
     await expect(new FileReceiptStore(targetPath).cleanupStaging(undefined as never)).rejects.toThrow(/offlineExclusive/u);
     await expect(new FileReceiptStore(targetPath).cleanupStaging({ offlineExclusive: true })).resolves.toBe(1);
     await expect(readFile(abandoned)).rejects.toThrow();
+
+    const orphanPath = join(directory, "quota-orphan");
+    const quotaFault = new FileReceiptStore(orphanPath, { faultInjector: (point) => { if (point === "quota:after-publish") throw new Error("quota crash"); } });
+    await expect(quotaFault.issue(receipt)).rejects.toThrow(/quota crash/u);
+    const transactionName = createHash("sha256").update(receipt.receiptDigest).digest("hex");
+    const transaction = JSON.parse(await readFile(join(orphanPath, "transactions", `${transactionName}.json`), "utf8"));
+    await new FileReceiptStore(orphanPath).recoverInterruptedIssue(receipt, { offlineExclusive: true, transactionId: transaction.transactionId });
+    await expect(new FileReceiptStore(orphanPath, { maxRecords: 1 }).issue(receipt)).resolves.toBeUndefined();
+  });
+
+  it.each(["cleanup:after-ownership-read", "cleanup:after-removal"])("resumes durable cleanup journal after %s fault", async (faultPoint) => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-cleanup-journal-"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const receipt = await createReceipt({ runId: `cleanup-${faultPoint.endsWith("read") ? "read" : "remove"}`, path: join(directory, "seed.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "seed-store")), ...receiptSigningOptions, nonce: `nonce-${faultPoint.endsWith("read") ? "read" : "remove"}`, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const targetPath = join(directory, "target");
+    await new FileReceiptStore(targetPath).issue(receipt);
+    let fired = false;
+    const faulty = new FileReceiptStore(targetPath, { faultInjector: (point) => { if (!fired && point === faultPoint) { fired = true; throw new Error("cleanup crash"); } } });
+    await expect(faulty.rollbackIssue(receipt.receiptDigest)).rejects.toThrow(/cleanup crash/u);
+    await expect(new FileReceiptStore(targetPath).reconcileCleanup(receipt.receiptDigest)).resolves.toBeUndefined();
+    await expect(new FileReceiptStore(targetPath).issue(receipt)).resolves.toBeUndefined();
   });
 });
