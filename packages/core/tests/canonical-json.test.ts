@@ -23,4 +23,42 @@ describe("canonical JSON", () => {
   it("rejects undefined rather than silently dropping it", () => {
     expect(() => canonicalJson({ value: undefined })).toThrow(/Undefined value/);
   });
+
+  it.each(["__proto__", "constructor", "prototype"])(
+    "rejects the dangerous key %s without creating a digest collision",
+    (key) => {
+      const hostile = JSON.parse(`{"${key}":{"admin":true}}`) as unknown;
+      expect(() => canonicalJson(hostile)).toThrow(/Dangerous object key/);
+      expect(() => sha256Canonical(hostile)).toThrow(/Dangerous object key/);
+    }
+  );
+
+  it("rejects class instances and objects with custom prototypes", () => {
+    class Hostile { value = 1; }
+    expect(() => canonicalJson(new Hostile())).toThrow(/plain JSON object/);
+    expect(() => canonicalJson(Object.create({ inherited: true }))).toThrow(/plain JSON object/);
+  });
+
+  it("rejects accessors without executing them", () => {
+    let executed = false;
+    const value = Object.defineProperty({}, "secret", {
+      enumerable: true,
+      get() {
+        executed = true;
+        return "leaked";
+      },
+    });
+    expect(() => canonicalJson(value)).toThrow(/Accessor property/);
+    expect(executed).toBe(false);
+  });
+
+  it("rejects circular and excessively deep input", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    expect(() => canonicalJson(circular)).toThrow(/Circular reference/);
+
+    let deep: unknown = null;
+    for (let index = 0; index < 70; index += 1) deep = [deep];
+    expect(() => canonicalJson(deep)).toThrow(/Maximum canonical JSON depth/);
+  });
 });
