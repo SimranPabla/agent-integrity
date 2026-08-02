@@ -136,11 +136,11 @@
 - Test: `packages/core/tests/verification/verify.test.ts`
 - Test: `packages/core/tests/adversarial/checker-failure.test.ts`
 
-- [ ] Write failing end-to-end tests for pass, review, block, malformed input,
+- [x] Write failing end-to-end tests for pass, review, block, malformed input,
   and internal failure.
-- [ ] Compose policy, source, decision, claim, and outcome checks.
-- [ ] Bind the complete canonical envelope to the result.
-- [ ] Run tests and commit.
+- [x] Compose policy, source, decision, claim, and outcome checks.
+- [x] Bind the complete canonical envelope to the result.
+- [x] Run tests and commit.
 
 ### Task 10: Receipt creation and recheck
 

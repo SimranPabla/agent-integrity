@@ -16,6 +16,32 @@ export interface IntegrityResult {
   readonly findings: readonly IntegrityFinding[];
 }
 
+export interface SourceRecord {
+  readonly sourceId: string;
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: number;
+}
+
+export interface ResponseDocument {
+  readonly content: string;
+  readonly sections: readonly ResponseSection[];
+}
+
+export interface IntegrityEnvelope {
+  readonly protocolVersion: typeof PROTOCOL_VERSION;
+  readonly policy: import("./policy.js").IntegrityPolicy;
+  readonly response: ResponseDocument;
+  readonly sources: readonly SourceRecord[];
+  readonly decisions: readonly DecisionEvent[];
+  readonly evidence: readonly EvidenceItem[];
+  readonly claims: readonly IntegrityClaim[];
+}
+
+export interface EnvelopeVerificationResult extends IntegrityResult {
+  readonly envelopeDigest?: string;
+}
+
 export type DecisionAction = "activate" | "reject" | "supersede";
 
 export interface DecisionEvent {
