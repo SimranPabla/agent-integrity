@@ -59,6 +59,16 @@ export function parseDecisionRegistry(input: string): DecisionRegistry {
       ...(action === "supersede" ? { supersededBy: identifier(event.supersededBy, `decision registry.events[${index}].supersededBy`) } : {}),
     };
   });
+  const nextRevision = new Map<string, number>();
+  for (const event of events) {
+    const expected = nextRevision.get(event.decisionId) ?? 1;
+    if (event.revision !== expected) {
+      throw new Error(
+        `decision ${event.decisionId} violates append order: expected revision ${expected}, received ${event.revision}`,
+      );
+    }
+    nextRevision.set(event.decisionId, expected + 1);
+  }
   reduceDecisions(events);
   return { version: 1, events };
 }
