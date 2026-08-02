@@ -6,12 +6,16 @@ import type {
   IntegrityFinding,
 } from "@agent-integrity/protocol";
 import { calculateOutcome, checkerFailure } from "./outcome.js";
+import { sha256Canonical } from "./hash.js";
+import { parseDecisionRegistry } from "./decisions/parse-registry.js";
 import { collectSourceBytes } from "./sources/collect-source.js";
 import { verifyEnvelope } from "./verify.js";
 
 export interface TrustedVerificationContext {
   readonly projectRoot: string;
   readonly allowedRoots: readonly string[];
+  /** Trusted relative path to the append-only YAML decision registry. */
+  readonly decisionRegistryPath: string;
   /** Maximum bytes read from one source. Defaults to 16 MiB. */
   readonly maxSourceBytes?: number;
   /** Maximum bytes retained across all sources. Defaults to 64 MiB. */
@@ -20,6 +24,7 @@ export interface TrustedVerificationContext {
 
 export const DEFAULT_MAX_SOURCE_BYTES = 16 * 1024 * 1024;
 export const DEFAULT_MAX_TOTAL_SOURCE_BYTES = 64 * 1024 * 1024;
+export const DEFAULT_MAX_DECISION_REGISTRY_BYTES = 1024 * 1024;
 
 function blocked(code: string, message: string, path: string): IntegrityFinding {
   return { code, severity: "blocked", message, path };
@@ -42,6 +47,10 @@ function assertTrustedContext(envelope: IntegrityEnvelope, context: TrustedVerif
   if (trusted.length !== policy.length || trusted.some((root, index) => root !== policy[index])) {
     throw new Error("trusted allowedRoots must exactly match policy.sources.allowedRoots");
   }
+  if (typeof context.decisionRegistryPath !== "string" || context.decisionRegistryPath.trim() === "" ||
+      normalizedRoot(context.decisionRegistryPath) !== normalizedRoot(envelope.policy.decisions.path)) {
+    throw new Error("trusted decisionRegistryPath must exactly match policy.decisions.path");
+  }
   for (const [name, value] of [
     ["maxSourceBytes", context.maxSourceBytes],
     ["maxTotalSourceBytes", context.maxTotalSourceBytes],
@@ -63,15 +72,41 @@ async function verifyTrustedUnsafe(
   } catch (error) {
     return {
       ...calculateOutcome([...structural.findings, blocked(
-        "source.context_invalid",
+        "trusted.context_invalid",
         error instanceof Error ? error.message : "trusted source context is invalid",
-        "policy.sources.allowedRoots",
+        "trustedContext",
       )]),
       envelopeDigest: structural.envelopeDigest,
     };
   }
 
   const findings = [...structural.findings];
+
+  try {
+    const live = await collectSourceBytes({
+      projectRoot: context.projectRoot,
+      allowedRoots: ["."],
+      sourcePath: context.decisionRegistryPath,
+      maxBytes: DEFAULT_MAX_DECISION_REGISTRY_BYTES,
+    });
+    if (live.path !== envelope.policy.decisions.path) {
+      findings.push(blocked("decision.registry_path_mismatch", "Decision registry path is not the normalized live path", "policy.decisions.path"));
+    }
+    if (live.sha256 !== envelope.decisionRegistryDigest) {
+      findings.push(blocked("decision.registry_digest_mismatch", "Decision registry digest differs from live YAML bytes", "decisionRegistryDigest"));
+    }
+    const registry = parseDecisionRegistry(live.bytes.toString("utf8"));
+    if (sha256Canonical(registry.events) !== sha256Canonical(envelope.decisions)) {
+      findings.push(blocked("decision.snapshot_mismatch", "Envelope decision snapshot differs from the trusted registry", "decisions"));
+    }
+  } catch (error) {
+    findings.push(blocked(
+      "decision.registry_load_failed",
+      error instanceof Error ? error.message : "decision registry loading failed",
+      "policy.decisions.path",
+    ));
+  }
+
   const collected = new Map<string, Buffer>();
   const maxSourceBytes = context.maxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES;
   const maxTotalSourceBytes = context.maxTotalSourceBytes ?? DEFAULT_MAX_TOTAL_SOURCE_BYTES;

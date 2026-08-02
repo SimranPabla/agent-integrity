@@ -26,12 +26,12 @@ Include:
 ## In-scope security issues
 
 - releasing response bytes for `REVIEW`, `BLOCKED`, malformed input, or checker failure;
-- response or source mutation not invalidating a result;
+- response, source, or trusted decision-registry mutation not invalidating a result;
 - receipt forgery within the documented alpha guarantees;
 - receipt replay, expiry bypass, duplicate run-ID acceptance, or overwrite;
 - canonicalization differences that produce unsafe cross-runtime behavior;
 - path traversal, absolute-path access, or symlink escape;
-- rejected or superseded decisions passing as active;
+- omitted registry history, an envelope decision snapshot differing from the configured registry, or rejected/superseded decisions passing as active claim references;
 - missing substantive-section coverage incorrectly passing;
 - parser confusion involving duplicate YAML keys, aliases, tags, or ambiguous values;
 - leakage of source or response content from documented CLI output;

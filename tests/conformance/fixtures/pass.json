@@ -24,12 +24,14 @@
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "size": 42
     }],
+    "decisionRegistryDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "decisions": [],
     "evidence": [{ "evidenceId": "window", "sourceId": "operations-policy" }],
     "claims": [{
       "claimId": "deployment-window",
       "sectionId": "answer",
       "kind": "factual",
+      "decisionIds": [],
       "evidence": [{ "evidenceId": "window", "role": "supporting", "support": "direct" }]
     }]
   },

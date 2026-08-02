@@ -68,7 +68,9 @@ Trusted context also accepts `maxSourceBytes` and `maxTotalSourceBytes`. Default
 
 ## 3. Record decision lifecycle events
 
-Decisions are append-only events with revisions. A decision can be active, rejected, or superseded. A superseding event must explicitly identify its replacement.
+Decisions are append-only events with revisions in the YAML file configured by `policy.decisions.path`. A decision can be active, rejected, or superseded. A superseding event must explicitly identify its replacement. Trusted verification reads this file inside `projectRoot`, hashes its exact bytes, and requires the envelope's `decisionRegistryDigest` and complete event snapshot to match it.
+
+Claims list the decisions they actually rely on in `decisionIds`. Use an empty list when a claim has no durable-decision dependency. Every referenced ID must resolve to an active decision. Historical rejected or superseded decisions may remain in the complete registry; they do not block claims that do not reference them.
 
 The verifier rejects:
 
@@ -104,7 +106,7 @@ import {
 
 const policyText = await readFile("integrity.yaml", "utf8");
 const policy = parsePolicy(policyText);
-const session = new AgentIntegritySession(policy);
+const session = new AgentIntegritySession(policy, decisionRegistryDigest);
 
 // Populate these from your retrieval/tooling layer and agent output.
 session.addSource(sourceRecord);
@@ -113,7 +115,11 @@ session.addEvidence(evidenceItem);
 session.addClaim(claim);
 session.setResponse(draft, sections);
 
-const context = { projectRoot: process.cwd(), allowedRoots: policy.sources.allowedRoots };
+const context = {
+  projectRoot: process.cwd(),
+  allowedRoots: policy.sources.allowedRoots,
+  decisionRegistryPath: policy.decisions.path,
+};
 const envelope = session.buildEnvelope();
 const verification = await verifyTrustedEnvelope(envelope, context);
 const release = await releaseVerifiedResponse({ envelope, verification, context });

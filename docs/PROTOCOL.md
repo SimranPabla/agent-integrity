@@ -57,7 +57,20 @@ Evidence and claim identifiers must be unique. Dangling references are rejected.
 
 Decision state is reconstructed from append-only lifecycle events. Supported states include active, rejected, and superseded. Revisions must be contiguous and non-conflicting. Superseding events must name a valid replacement.
 
-The verifier rejects duplicate events, revision gaps, conflicting state, invalid replacement chains, and claims that rely on a rejected or superseded decision as though it remained active.
+Each claim carries a `decisionIds` list. The list may be empty when the claim does not rely on a durable decision. Trusted verification loads the YAML file configured by `policy.decisions.path`, hashes its exact bytes, and requires both `decisionRegistryDigest` and the envelope's complete `decisions` snapshot to match that registry. It rejects duplicate events, revision gaps, conflicting state, invalid replacement chains, unknown references, and claims that rely on rejected or superseded decisions. Rejected or superseded decisions that no claim references remain valid registry history and do not block an unrelated response.
+
+The registry YAML has exactly two root fields:
+
+```yaml
+version: 1
+events:
+  - eventId: approve-window-1
+    decisionId: maintenance-window
+    revision: 1
+    action: activate
+```
+
+Aliases, custom tags, duplicate keys, unknown fields, invalid event shapes, and invalid lifecycle sequences are rejected. The configured path must be relative and resolve inside the trusted project root.
 
 ## Canonical JSON
 

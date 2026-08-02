@@ -5,7 +5,7 @@ This is the smallest complete agent-first integration. It demonstrates the bound
 ## What it demonstrates
 
 - constructing a complete envelope through `AgentIntegritySession`;
-- registering exact sources and decision events;
+- binding the exact configured decision-registry bytes and its complete event snapshot;
 - binding a response section to exact UTF-8 byte offsets and a digest, then mapping it to a claim and supporting evidence;
 - calculating a deterministic `PASS`;
 - releasing only the exact verified response.
@@ -34,7 +34,7 @@ Read [index.mjs](index.mjs) from top to bottom. The protocol objects are intenti
 1. Replace the synthetic source with records created by `collectSource` when your retrieval or file tool reads content.
 2. Create each evidence anchor from the exact byte range used, not from decoded character offsets.
 3. Pass the trusted project root and policy-matching allowed roots to both `verifyTrustedEnvelope` and `releaseVerifiedResponse`.
-4. Replace the synthetic decision event with your reviewed decision registry.
+4. Replace the empty `integrity/decisions.yaml` registry with reviewed append-only events, update its digest and snapshot, and add the active IDs each claim relies on.
 5. Ask the agent to emit structured claims, evidence references, and response sections alongside its prose.
 6. Validate the structured output before adding it to the session.
 7. Call the verifier after the complete response exists.

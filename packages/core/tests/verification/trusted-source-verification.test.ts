@@ -11,6 +11,9 @@ const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).dig
 async function fixture() {
   const projectRoot = await mkdtemp(join(tmpdir(), "agent-integrity-trusted-"));
   await mkdir(join(projectRoot, "docs"));
+  await mkdir(join(projectRoot, "integrity"));
+  const registry = "version: 1\nevents: []\n";
+  await writeFile(join(projectRoot, "integrity", "decisions.yaml"), registry);
   const bytes = Buffer.from("trusted source bytes\n", "utf8");
   await writeFile(join(projectRoot, "docs", "source.md"), bytes);
   const base = validEnvelope();
@@ -19,6 +22,7 @@ async function fixture() {
     bytes,
     envelope: {
       ...base,
+      decisionRegistryDigest: sha256(Buffer.from(registry)),
       sources: [{ sourceId: "source-1", path: "docs/source.md", size: bytes.length, sha256: sha256(bytes) }],
       evidence: [{
         evidenceId: "evidence-1",
@@ -39,6 +43,7 @@ describe("verifyTrustedEnvelope", () => {
     const result = await verifyTrustedEnvelope(envelope, {
       projectRoot: test.projectRoot,
       allowedRoots: ["docs"],
+      decisionRegistryPath: "integrity/decisions.yaml",
     });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.some((finding) => finding.code === "source.digest_mismatch")).toBe(true);
@@ -46,7 +51,7 @@ describe("verifyTrustedEnvelope", () => {
 
   it("blocks source mutation after an earlier trusted verification", async () => {
     const test = await fixture();
-    const context = { projectRoot: test.projectRoot, allowedRoots: ["docs"] };
+    const context = { projectRoot: test.projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml" };
     expect((await verifyTrustedEnvelope(test.envelope, context)).status).toBe("PASS");
     await writeFile(join(test.projectRoot, "docs", "source.md"), "changed source bytes\n");
     const result = await verifyTrustedEnvelope(test.envelope, context);
@@ -63,6 +68,7 @@ describe("verifyTrustedEnvelope", () => {
     const sizeResult = await verifyTrustedEnvelope(wrongSize, {
       projectRoot: test.projectRoot,
       allowedRoots: ["docs"],
+      decisionRegistryPath: "integrity/decisions.yaml",
     });
     expect(sizeResult.findings.some((finding) => finding.code === "source.size_mismatch")).toBe(true);
 
@@ -73,6 +79,7 @@ describe("verifyTrustedEnvelope", () => {
     const pathResult = await verifyTrustedEnvelope(nonNormalized, {
       projectRoot: test.projectRoot,
       allowedRoots: ["docs"],
+      decisionRegistryPath: "integrity/decisions.yaml",
     });
     expect(pathResult.findings.some((finding) => finding.code === "source.path_mismatch")).toBe(true);
   });
@@ -82,9 +89,10 @@ describe("verifyTrustedEnvelope", () => {
     const result = await verifyTrustedEnvelope(test.envelope, {
       projectRoot: test.projectRoot,
       allowedRoots: ["other"],
+      decisionRegistryPath: "integrity/decisions.yaml",
     });
     expect(result.status).toBe("BLOCKED");
-    expect(result.findings.some((finding) => finding.code === "source.context_invalid")).toBe(true);
+    expect(result.findings.some((finding) => finding.code === "trusted.context_invalid")).toBe(true);
   });
 
   it("checks evidence anchors against the recollected source bytes", async () => {
@@ -96,6 +104,7 @@ describe("verifyTrustedEnvelope", () => {
     const result = await verifyTrustedEnvelope(envelope, {
       projectRoot: test.projectRoot,
       allowedRoots: ["docs"],
+      decisionRegistryPath: "integrity/decisions.yaml",
     });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.some((finding) => finding.code === "evidence.anchor_digest_mismatch")).toBe(true);
@@ -104,13 +113,13 @@ describe("verifyTrustedEnvelope", () => {
   it("rejects missing and out-of-range anchors", async () => {
     const test = await fixture();
     const missing = { ...test.envelope, evidence: [{ evidenceId: "evidence-1", sourceId: "source-1" }] };
-    expect((await verifyTrustedEnvelope(missing, { projectRoot: test.projectRoot, allowedRoots: ["docs"] })).status)
+    expect((await verifyTrustedEnvelope(missing, { projectRoot: test.projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml" })).status)
       .toBe("BLOCKED");
     const outside = {
       ...test.envelope,
       evidence: [{ ...test.envelope.evidence[0]!, anchor: { byteStart: 0, byteEnd: 999, sha256: "0".repeat(64) } }],
     };
-    expect((await verifyTrustedEnvelope(outside, { projectRoot: test.projectRoot, allowedRoots: ["docs"] })).status)
+    expect((await verifyTrustedEnvelope(outside, { projectRoot: test.projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml" })).status)
       .toBe("BLOCKED");
   });
 
@@ -119,6 +128,7 @@ describe("verifyTrustedEnvelope", () => {
     const result = await verifyTrustedEnvelope(test.envelope, {
       projectRoot: test.projectRoot,
       allowedRoots: ["docs"],
+      decisionRegistryPath: "integrity/decisions.yaml",
       maxSourceBytes: test.bytes.length - 1,
     });
     expect(result.status).toBe("BLOCKED");
@@ -139,6 +149,7 @@ describe("verifyTrustedEnvelope", () => {
     const result = await verifyTrustedEnvelope(envelope, {
       projectRoot: test.projectRoot,
       allowedRoots: ["docs"],
+      decisionRegistryPath: "integrity/decisions.yaml",
       maxSourceBytes: 1024,
       maxTotalSourceBytes: test.bytes.length + second.length - 1,
     });

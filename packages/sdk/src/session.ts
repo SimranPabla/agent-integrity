@@ -12,14 +12,17 @@ import {
 /** Collects one agent run into a protocol envelope without a per-run manifest. */
 export class AgentIntegritySession {
   readonly #policy: IntegrityPolicy;
+  readonly #decisionRegistryDigest: string;
   #response: { content: string; sections: readonly ResponseSection[] } | undefined;
   readonly #sources: SourceRecord[] = [];
   readonly #decisions: DecisionEvent[] = [];
   readonly #evidence: EvidenceItem[] = [];
   readonly #claims: IntegrityClaim[] = [];
 
-  constructor(policy: IntegrityPolicy) {
+  constructor(policy: IntegrityPolicy, decisionRegistryDigest: string) {
     this.#policy = structuredClone(policy);
+    if (!/^[a-f0-9]{64}$/u.test(decisionRegistryDigest)) throw new Error("decisionRegistryDigest must be a SHA-256 digest");
+    this.#decisionRegistryDigest = decisionRegistryDigest;
   }
 
   setResponse(content: string, sections: readonly ResponseSection[]): this {
@@ -54,6 +57,7 @@ export class AgentIntegritySession {
       policy: this.#policy,
       response: this.#response,
       sources: this.#sources,
+      decisionRegistryDigest: this.#decisionRegistryDigest,
       decisions: this.#decisions,
       evidence: this.#evidence,
       claims: this.#claims,

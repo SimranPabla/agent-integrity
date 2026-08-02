@@ -107,7 +107,7 @@ Until then, import from the built workspace packages or use the JSON CLI from a 
 An integration normally performs five steps:
 
 1. Load the project policy once.
-2. Collect the exact sources and decision events used for the run.
+2. Load the configured decision registry and bind its exact YAML digest and complete event snapshot.
 3. Let the agent draft its response and claim-to-evidence mappings.
 4. Build and verify the complete envelope.
 5. Release only the unchanged response returned by the release guard.
@@ -120,7 +120,7 @@ import {
   releaseVerifiedResponse,
 } from "@agent-integrity/sdk";
 
-const session = new AgentIntegritySession(parsedPolicy);
+const session = new AgentIntegritySession(parsedPolicy, decisionRegistryDigest);
 
 session.addSource(sourceRecord);
 session.addDecision(activeDecision);
@@ -138,7 +138,11 @@ session.setResponse(
   }],
 );
 
-const context = { projectRoot: process.cwd(), allowedRoots: parsedPolicy.sources.allowedRoots };
+const context = {
+  projectRoot: process.cwd(),
+  allowedRoots: parsedPolicy.sources.allowedRoots,
+  decisionRegistryPath: parsedPolicy.decisions.path,
+};
 // sourceRecord must come from collectSource(context + sourcePath), and each
 // evidence item must include an exact byte anchor into that collected file.
 const envelope = session.buildEnvelope();

@@ -5,6 +5,7 @@ export * from "./policy/parse-policy.js";
 export * from "./sources/collect-source.js";
 export * from "./sources/path-boundary.js";
 export * from "./decisions/reduce-decisions.js";
+export * from "./decisions/parse-registry.js";
 export * from "./claims/coverage.js";
 export * from "./claims/evidence.js";
 export * from "./verify.js";

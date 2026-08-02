@@ -19,7 +19,7 @@ Expected:
 
 ## What to inspect
 
-Open `request.json` and follow the decision revisions in order. The latest event controls. An agent cannot select an earlier revision simply because it supports the answer it wants to produce.
+Open `integrity/decisions.yaml` and follow the decision revisions in order. `request.json` contains the same snapshot and its exact registry digest. The claim's `decisionIds` points to `old`, whose latest state is superseded. An agent cannot omit registry history or select an earlier revision simply because it supports the answer it wants to produce.
 
 ## Try it
 

@@ -24,6 +24,7 @@
       "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "size": 25
     }],
+    "decisionRegistryDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "decisions": [
       { "eventId": "old-1", "decisionId": "old-plan", "revision": 1, "action": "activate" },
       { "eventId": "new-1", "decisionId": "new-plan", "revision": 1, "action": "activate" },
@@ -34,6 +35,7 @@
       "claimId": "rollout-plan",
       "sectionId": "answer",
       "kind": "recommendation",
+      "decisionIds": ["old-plan"],
       "evidence": [{ "evidenceId": "old-rollout", "role": "supporting", "support": "direct" }]
     }]
   },

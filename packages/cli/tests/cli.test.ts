@@ -18,11 +18,15 @@ const digest = (value: string): string => createHash("sha256").update(value).dig
 async function trustedFixture(envelope = validEnvelope()) {
   const projectRoot = await mkdtemp(join(tmpdir(), "integrity-cli-source-"));
   await mkdir(join(projectRoot, "docs"));
+  await mkdir(join(projectRoot, "integrity"));
   const content = "0123456789";
   await writeFile(join(projectRoot, "docs", "source.md"), content);
+  const registry = "version: 1\nevents: []\n";
+  await writeFile(join(projectRoot, "integrity", "decisions.yaml"), registry);
+  (envelope as any).decisionRegistryDigest = digest(registry);
   (envelope as any).sources = [{ sourceId: "source-1", path: "docs/source.md", size: 10, sha256: digest(content) }];
   (envelope as any).evidence = [{ evidenceId: "evidence-1", sourceId: "source-1", anchor: { byteStart: 0, byteEnd: 4, sha256: digest("0123") } }];
-  return { envelope, context: { projectRoot, allowedRoots: ["docs"] } };
+  return { envelope, context: { projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml" } };
 }
 
 async function run(command: string, input: unknown): Promise<{ code: number; output: any; stderr: string }> {

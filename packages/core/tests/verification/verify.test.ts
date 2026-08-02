@@ -19,9 +19,10 @@ function envelope(): IntegrityEnvelope {
     },
     response: { content: "The approved policy is active.", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 30, sha256: "61fe3a22fbb5346c380e9517bfc80b11fa5af77c800bec0b20c3c143a45b28df" }] },
     sources: [{ sourceId: "policy", path: "docs/policy.md", sha256: "a".repeat(64), size: 12 }],
+    decisionRegistryDigest: "a".repeat(64),
     decisions: [{ eventId: "event-1", decisionId: "decision-1", revision: 1, action: "activate" }],
     evidence: [{ evidenceId: "evidence-1", sourceId: "policy" }],
-    claims: [{ claimId: "claim-1", sectionId: "answer", kind: "factual", evidence: [{ evidenceId: "evidence-1", role: "supporting", support: "direct" }] }],
+    claims: [{ claimId: "claim-1", sectionId: "answer", kind: "factual", decisionIds: ["decision-1"], evidence: [{ evidenceId: "evidence-1", role: "supporting", support: "direct" }] }],
   };
 }
 
@@ -38,13 +39,13 @@ describe("complete-envelope verification", () => {
     expect(verifyEnvelope(input).status).toBe("REVIEW");
   });
 
-  it("blocks rejected decision state and uncovered sections", () => {
+  it("does not globally block unrelated rejected history", () => {
     const input = envelope();
     input.decisions = [...input.decisions, { eventId: "event-2", decisionId: "decision-1", revision: 2, action: "reject" }];
     input.claims = [];
     const result = verifyEnvelope(input);
     expect(result.status).toBe("BLOCKED");
-    expect(result.findings.map((finding) => finding.code)).toEqual(expect.arrayContaining(["decision.rejected", "claim.section_uncovered"]));
+    expect(result.findings.map((finding) => finding.code)).toEqual(["claim.section_uncovered"]);
   });
 
   it("fails closed on malformed input", () => {

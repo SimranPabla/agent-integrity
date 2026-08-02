@@ -24,12 +24,14 @@
       "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "size": 31
     }],
+    "decisionRegistryDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "decisions": [],
     "evidence": [{ "evidenceId": "tentative-window", "sourceId": "notes" }],
     "claims": [{
       "claimId": "deployment-window",
       "sectionId": "answer",
       "kind": "factual",
+      "decisionIds": [],
       "evidence": [{ "evidenceId": "tentative-window", "role": "supporting", "support": "ambiguous" }]
     }]
   },

@@ -60,7 +60,7 @@ An agent may cite contextual or contradictory material as if it supports a claim
 
 ### Decision revival
 
-An agent may reuse a rejected decision or an older decision superseded by a replacement. Lifecycle reconstruction rejects the stale state.
+An agent may omit registry events, alter its decision snapshot, or reference a rejected decision or an older decision superseded by a replacement. Trusted verification loads the configured YAML registry, binds its exact digest, compares the complete snapshot, and rejects unknown or non-active claim references. Terminal historical decisions that are not referenced do not globally block unrelated claims.
 
 ### Source mutation
 

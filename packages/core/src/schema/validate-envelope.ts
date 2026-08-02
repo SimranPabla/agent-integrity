@@ -72,9 +72,10 @@ function validatePolicy(value: unknown): void {
 
 export function assertIntegrityEnvelope(value: unknown): asserts value is IntegrityEnvelope {
   const envelope = record(value, "envelope");
-  exact(envelope, ["protocolVersion", "policy", "response", "sources", "decisions", "evidence", "claims"], "envelope");
+  exact(envelope, ["protocolVersion", "policy", "response", "sources", "decisionRegistryDigest", "decisions", "evidence", "claims"], "envelope");
   if (envelope.protocolVersion !== PROTOCOL_VERSION) throw new Error("unsupported protocol version");
   validatePolicy(envelope.policy);
+  if (!SHA256.test(string(envelope.decisionRegistryDigest, "decisionRegistryDigest"))) throw new Error("decisionRegistryDigest is invalid");
 
   const response = record(envelope.response, "response");
   exact(response, ["content", "sections"], "response");
@@ -141,10 +142,13 @@ export function assertIntegrityEnvelope(value: unknown): asserts value is Integr
 
   list(envelope.claims, "claims").forEach((entry, index) => {
     const claim = record(entry, `claims[${index}]`);
-    exact(claim, ["claimId", "sectionId", "kind", "evidence"], `claims[${index}]`);
+    exact(claim, ["claimId", "sectionId", "kind", "decisionIds", "evidence"], `claims[${index}]`);
     string(claim.claimId, `claims[${index}].claimId`);
     string(claim.sectionId, `claims[${index}].sectionId`);
     oneOf(claim.kind, ["factual", "recommendation", "inference"], `claims[${index}].kind`);
+    const decisionIds = list(claim.decisionIds, `claims[${index}].decisionIds`).map((value, decisionIndex) =>
+      string(value, `claims[${index}].decisionIds[${decisionIndex}]`));
+    if (new Set(decisionIds).size !== decisionIds.length) throw new Error(`claims[${index}].decisionIds contains duplicates`);
     list(claim.evidence, `claims[${index}].evidence`).forEach((entryValue, evidenceIndex) => {
       const link = record(entryValue, `claims[${index}].evidence[${evidenceIndex}]`);
       const keys = ["evidenceId", "role", ...(link.support === undefined ? [] : ["support"]), ...(link.disclosed === undefined ? [] : ["disclosed"])];

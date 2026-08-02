@@ -56,11 +56,11 @@
 
 **Files:** protocol types/schema, decision parser/loader/reducer, verifier, examples, tests
 
-- [ ] Add failing omission, stale-reference, unrelated-history, and registry-mutation tests.
-- [ ] Add `decisionIds` to claims.
-- [ ] Strictly load the configured append-only registry and bind its digest.
-- [ ] Require referenced decisions to be active without globally blocking unrelated historical decisions.
-- [ ] Run all tests and commit.
+- [x] Add failing omission, stale-reference, unrelated-history, and registry-mutation tests.
+- [x] Add `decisionIds` to claims.
+- [x] Strictly load the configured append-only registry and bind its digest.
+- [x] Require referenced decisions to be active without globally blocking unrelated historical decisions.
+- [x] Run all tests and commit.
 
 ## Chunk 3: Authenticated single-use receipts
 

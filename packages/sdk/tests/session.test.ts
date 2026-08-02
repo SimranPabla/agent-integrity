@@ -17,7 +17,7 @@ const policy: IntegrityPolicy = {
 
 describe("AgentIntegritySession", () => {
   it("constructs a complete envelope without a per-run manifest", () => {
-    const session = new AgentIntegritySession(policy)
+    const session = new AgentIntegritySession(policy, "a".repeat(64))
       .setResponse("Supported answer", [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 16, sha256: "f66b51d1938ea26bc8fa6432aae63470ebbf8aa72b3b8bde7f7a92b48999dd3a" }])
       .addSource({ sourceId: "source-1", path: "docs/source.md", sha256: "a".repeat(64), size: 10 })
       .addEvidence({ evidenceId: "evidence-1", sourceId: "source-1" })
@@ -25,6 +25,7 @@ describe("AgentIntegritySession", () => {
         claimId: "claim-1",
         sectionId: "answer",
         kind: "factual",
+        decisionIds: [],
         evidence: [{ evidenceId: "evidence-1", role: "supporting", support: "direct" }],
       });
 
@@ -33,18 +34,20 @@ describe("AgentIntegritySession", () => {
       policy,
       response: { content: "Supported answer", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 16, sha256: "f66b51d1938ea26bc8fa6432aae63470ebbf8aa72b3b8bde7f7a92b48999dd3a" }] },
       sources: [{ sourceId: "source-1", path: "docs/source.md", sha256: "a".repeat(64), size: 10 }],
+      decisionRegistryDigest: "a".repeat(64),
       decisions: [],
       evidence: [{ evidenceId: "evidence-1", sourceId: "source-1" }],
       claims: [{
         claimId: "claim-1",
         sectionId: "answer",
         kind: "factual",
+        decisionIds: [],
         evidence: [{ evidenceId: "evidence-1", role: "supporting", support: "direct" }],
       }],
     });
   });
 
   it("refuses to build before a response is set", () => {
-    expect(() => new AgentIntegritySession(policy).buildEnvelope()).toThrow("response has not been set");
+    expect(() => new AgentIntegritySession(policy, "a".repeat(64)).buildEnvelope()).toThrow("response has not been set");
   });
 });

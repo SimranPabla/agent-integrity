@@ -37,14 +37,18 @@ function validateSources(sources: readonly SourceRecord[]): void {
 
 function decisionFindings(envelope: IntegrityEnvelope): IntegrityFinding[] {
   const states = reduceDecisions(envelope.decisions);
-  return states
-    .filter((state) => state.status !== "active")
-    .map((state) => ({
-      code: `decision.${state.status}`,
+  const byId = new Map(states.map((state) => [state.decisionId, state]));
+  const referenced = new Set(envelope.claims.flatMap((claim) => claim.decisionIds));
+  return [...referenced].sort().flatMap((decisionId) => {
+    const state = byId.get(decisionId);
+    if (state?.status === "active") return [];
+    return [{
+      code: state === undefined ? "decision.unknown" : `decision.${state.status}`,
       severity: "blocked" as const,
-      message: `Decision ${state.decisionId} is ${state.status}`,
-      path: "decisions",
-    }));
+      message: state === undefined ? `Decision ${decisionId} does not exist` : `Decision ${decisionId} is ${state.status}`,
+      path: "claims",
+    }];
+  });
 }
 
 function verifyUnsafe(envelope: IntegrityEnvelope): EnvelopeVerificationResult {

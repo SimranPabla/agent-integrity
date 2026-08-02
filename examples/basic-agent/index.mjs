@@ -18,12 +18,14 @@ const policy = {
 };
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
-const context = { projectRoot, allowedRoots: policy.sources.allowedRoots };
+const context = { projectRoot, allowedRoots: policy.sources.allowedRoots, decisionRegistryPath: policy.decisions.path };
 const collected = await collectSource({ ...context, sourcePath: "docs/maintenance.md" });
 const sourceBytes = await readFile(new URL("docs/maintenance.md", import.meta.url));
 const anchorBytes = sourceBytes.subarray(0, 43);
+const registryBytes = await readFile(new URL("integrity/decisions.yaml", import.meta.url));
+const decisionRegistryDigest = createHash("sha256").update(registryBytes).digest("hex");
 
-const session = new AgentIntegritySession(policy)
+const session = new AgentIntegritySession(policy, decisionRegistryDigest)
   .setResponse("The maintenance window begins at 09:00 UTC.", [
     { sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 43, sha256: "540beff0286b1ba21c45be4113a48f85ca13cb1b6b4b1f9ef9de06bf08238f6a" },
   ])
@@ -42,6 +44,7 @@ const session = new AgentIntegritySession(policy)
     claimId: "window-start",
     sectionId: "answer",
     kind: "factual",
+    decisionIds: [],
     evidence: [{ evidenceId: "maintenance-window", role: "supporting", support: "direct" }],
   });
 

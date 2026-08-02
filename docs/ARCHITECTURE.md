@@ -41,7 +41,7 @@ The JSON protocol is the compatibility boundary. Other languages do not need to 
 - canonicalizes supported JSON values;
 - calculates SHA-256 digests;
 - structurally validates envelopes and, through `verifyTrustedEnvelope`, recollects allowed source files and validates exact bytes;
-- rebuilds active, rejected, and superseded decision state;
+- loads the configured decision registry from the trusted project root, binds its exact YAML digest, requires the envelope snapshot to match, and rebuilds active, rejected, and superseded state;
 - checks complete, ordered UTF-8 byte coverage, section digests, and claim coverage for every section;
 - checks supporting, contradictory, and contextual evidence roles;
 - calculates `PASS`, `REVIEW`, or `BLOCKED`;
@@ -78,7 +78,7 @@ Agent/collector creates claims, evidence records, and source hashes
 SDK builds one complete canonical envelope
                          |
                          v
-Core validates structure, policy, sources, decisions, coverage, evidence
+Core validates structure, policy, live sources, trusted decision registry, referenced active decisions, coverage, and evidence
                          |
              +-----------+-----------+
              |           |           |

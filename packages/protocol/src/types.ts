@@ -33,6 +33,8 @@ export interface IntegrityEnvelope {
   readonly policy: import("./policy.js").IntegrityPolicy;
   readonly response: ResponseDocument;
   readonly sources: readonly SourceRecord[];
+  /** SHA-256 of the exact trusted decision registry YAML bytes. */
+  readonly decisionRegistryDigest: string;
   readonly decisions: readonly DecisionEvent[];
   readonly evidence: readonly EvidenceItem[];
   readonly claims: readonly IntegrityClaim[];
@@ -120,5 +122,6 @@ export interface IntegrityClaim {
   readonly claimId: string;
   readonly sectionId: string;
   readonly kind: ClaimKind;
+  readonly decisionIds: readonly string[];
   readonly evidence: readonly ClaimEvidence[];
 }
