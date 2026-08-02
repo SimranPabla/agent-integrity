@@ -126,6 +126,8 @@ Receipt creation requires trusted verification and recollects every declared sou
 
 Receipt `2-alpha` authenticates its configured producer and can be consumed exactly once through `FileReceiptStore`. The Ed25519 payload protects the algorithm, key ID, and complete receipt body. Issuance reserves the run ID and nonce with atomic create-once markers, then commits an issued-record file; normal failures roll back owned markers and an explicit recovery operation removes markers from an interrupted pre-commit issuance. Consumption atomically creates one digest-specific record, so exactly one concurrent consumer succeeds. This guarantee assumes one protected store on one host filesystem. Filesystem durability, crash-time recovery invocation, key custody, rotation, backup monotonicity, and trust-root distribution remain host responsibilities.
 
+The issued record stores the complete receipt as the authoritative recovery copy. If the process stops after store commit but before the public receipt file is written, `completeReceiptFile(receiptDigest, outputPath)` recreates that file with create-once semantics after validating its self-digest. The store uses atomic quota-slot files to enforce `maxRecords` across concurrent issuers without a global lock. Consumed tombstones continue counting toward the limit because deleting them would weaken replay protection.
+
 ## Strict YAML policy
 
 The policy parser accepts a deliberately restricted subset. It rejects:

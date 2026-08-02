@@ -22,6 +22,8 @@ It is not an action-control framework, a truth oracle, or an autonomous fact che
 
 `packages/protocol` defines the structures exchanged between agents, collectors, the verifier, and receipt stores. It also parses the one-time project policy using a restricted YAML subset.
 
+The published envelope schema mirrors runtime structural rules where JSON Schema can express them, including role-dependent evidence metadata. The runtime response limit is measured in UTF-8 bytes; JSON Schema string lengths count Unicode characters, so the schema documents but does not attempt to encode that byte limit.
+
 The protocol contains:
 
 - source records with exact content digests;

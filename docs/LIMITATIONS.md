@@ -60,6 +60,8 @@ Receipt `2-alpha` uses Ed25519 to authenticate a producer and binds issuer, audi
 
 The filesystem receipt store uses atomic create-once records per run ID, nonce, receipt digest, and consumption event. It does not use a stealable stale global lock. Multi-file issuance is not one filesystem transaction: ordinary failures roll back owned reservations, while a process crash before the issued record is committed requires explicit `recoverInterruptedIssue` with the same receipt. It is not a distributed transaction system and assumes every consumer uses the same protected store on one filesystem. Copying or restoring older store state can restore previously consumed state. An actor who steals a signing key can forge its producer identity; an actor who changes the trusted-key configuration can alter the trust boundary.
 
+The store defaults to at most 10,000 issued receipts and bounds each state record. Quota slots are claimed with atomic filesystem creation, so concurrent issuers cannot exceed the configured count. Issued and consumed records are intentionally retained. Plan capacity and rotate to a new store only with a new audience or purpose after all receipts in the old store have expired; retain the old consumed tombstones read-only for audit. Deleting state merely to reclaim quota can permit replay and is unsupported.
+
 Do not treat a signature as proof that response claims are true. Production use still requires protected key custody, rotation, revocation distribution, and a documented trust-root ceremony.
 
 ## Host bypass

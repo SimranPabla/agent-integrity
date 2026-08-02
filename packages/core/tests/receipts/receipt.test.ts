@@ -173,6 +173,33 @@ describe("signed alpha receipts", () => {
     await expect(store.issue(receipt)).resolves.toBeUndefined();
   });
 
+  it("reconstructs a missing receipt file after a crash following store issuance", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-complete-output-"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const source = new FileReceiptStore(join(directory, "source"));
+    const receipt = await createReceipt({ runId: "crash-window", path: join(directory, "original.json"), envelope, verification, context, receiptStore: source, ...receiptSigningOptions, createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const recoveredStore = new FileReceiptStore(join(directory, "recovered-store"));
+    await recoveredStore.issue(receipt);
+    const recoveredPath = join(directory, "recovered.json");
+    await expect(recoveredStore.completeReceiptFile(receipt.receiptDigest, recoveredPath)).resolves.toEqual(receipt);
+    expect(JSON.parse(await readFile(recoveredPath, "utf8"))).toEqual(receipt);
+    await expect(recoveredStore.issue(receipt)).rejects.toThrow(/run ID already exists/u);
+  });
+
+  it("enforces a concurrency-safe maximum receipt count", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "integrity-store-quota-"));
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const verification = await verifyTrustedEnvelope(envelope, context);
+    const first = await createReceipt({ runId: "quota-one", path: join(directory, "one.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "source-one")), ...receiptSigningOptions, nonce: "quota-nonce-one", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const second = await createReceipt({ runId: "quota-two", path: join(directory, "two.json"), envelope, verification, context, receiptStore: new FileReceiptStore(join(directory, "source-two")), ...receiptSigningOptions, nonce: "quota-nonce-two", createdAt: new Date("2026-08-02T00:00:00.000Z"), expiresAt: new Date("2026-08-02T01:00:00.000Z") });
+    const target = new FileReceiptStore(join(directory, "target"), { maxRecords: 1 });
+    const results = await Promise.allSettled([target.issue(first), target.issue(second)]);
+    expect(results.map((result) => result.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(results.find((result) => result.status === "rejected")?.reason.message).toMatch(/record limit/u);
+    expect(() => new FileReceiptStore(join(directory, "bad"), { maxRecords: 0 })).toThrow(/maxRecords/u);
+  });
+
   it("rolls back reservations when the receipt parent is a file", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-parent-file-"));
     const parent = join(directory, "not-a-directory");

@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,6 +21,12 @@ async function issued(runId: string) {
 }
 
 describe("signed receipt authentication", () => {
+  it("publishes the exact canonical Ed25519 signature encoding constraint", async () => {
+    const schema = JSON.parse(await readFile(new URL("../../../../schemas/integrity-receipt.schema.json", import.meta.url), "utf8"));
+    expect(schema.properties.signature.properties.value).toEqual({
+      type: "string", minLength: 88, maxLength: 88, pattern: "^[A-Za-z0-9+/]{86}==$",
+    });
+  });
   it("blocks a forged body even when the attacker recomputes the public digest", async () => {
     const { receipt, envelope, context } = await issued("forgery");
     const forgedWithoutDigest = { ...receipt, audience: "attacker" };
@@ -72,6 +78,20 @@ describe("signed receipt authentication", () => {
     const result = await recheckTrustedReceipt({ receipt, envelope: downgraded, context, trust: receiptTrust, now: new Date("2026-08-02T00:30:00.000Z") });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.map((finding) => finding.code)).toContain("receipt.policy_downgrade");
+  });
+
+  it.each([
+    ["unpadded", (value: string) => value.replace(/==$/u, "")],
+    ["whitespace", (value: string) => `${value.slice(0, 20)}\n${value.slice(20)}`],
+    ["wrong length", (_value: string) => Buffer.alloc(63).toString("base64")],
+  ])("rejects %s Ed25519 signature encoding", async (_name, mutate) => {
+    const { receipt, envelope, context } = await issued(`encoding-${_name.replace(" ", "-")}`);
+    const changedWithoutDigest = { ...receipt, signature: { ...receipt.signature, value: mutate(receipt.signature.value) } };
+    const { receiptDigest: _old, ...body } = changedWithoutDigest;
+    const changed = { ...body, receiptDigest: sha256Canonical(body) };
+    const result = await recheckTrustedReceipt({ receipt: changed, envelope, context, trust: receiptTrust, now: new Date("2026-08-02T00:30:00.000Z") });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.map((finding) => finding.code)).toContain("receipt.invalid_signature_encoding");
   });
 
   it("rejects excessive lifetime at issuance", async () => {

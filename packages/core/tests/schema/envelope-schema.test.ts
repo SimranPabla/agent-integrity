@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { verifyEnvelope } from "../../src/index.js";
+import { readFile } from "node:fs/promises";
+import { validEnvelope as completeEnvelope } from "../support/valid-envelope.js";
 
 function validEnvelope(): Record<string, unknown> {
   return {
@@ -64,5 +66,27 @@ describe("strict envelope runtime schema", () => {
       size: 0,
     }));
     expect(verifyEnvelope(envelope as never).status).toBe("BLOCKED");
+  });
+
+  it.each([
+    ["supporting disclosed", { role: "supporting", support: "direct", disclosed: true }],
+    ["contradictory support", { role: "contradictory", support: "direct" }],
+    ["contextual support", { role: "contextual", support: "ambiguous" }],
+    ["contextual disclosed", { role: "contextual", disclosed: false }],
+  ])("keeps runtime role metadata rules aligned for %s", async (_name, metadata) => {
+    const envelope = completeEnvelope();
+    envelope.claims[0]!.evidence[0] = { evidenceId: "evidence-1", ...metadata } as never;
+    expect(verifyEnvelope(envelope).status).toBe("BLOCKED");
+    const schema = JSON.parse(await readFile(new URL("../../../../schemas/integrity-envelope.schema.json", import.meta.url), "utf8"));
+    expect(JSON.stringify(schema.$defs.claimEvidence.allOf)).toContain(`\"${metadata.role}\"`);
+  });
+
+  it("documents character-vs-UTF-8-byte limits and enforces the byte limit at runtime", async () => {
+    const schema = JSON.parse(await readFile(new URL("../../../../schemas/integrity-envelope.schema.json", import.meta.url), "utf8"));
+    expect(schema.$defs.response.description).toMatch(/UTF-8 bytes.*cannot express/u);
+    expect(schema.$defs.response.properties.content.maxLength).toBeUndefined();
+    const envelope = completeEnvelope();
+    envelope.response = { content: "é".repeat(8_388_609), sections: [] };
+    expect(verifyEnvelope(envelope).status).toBe("BLOCKED");
   });
 });

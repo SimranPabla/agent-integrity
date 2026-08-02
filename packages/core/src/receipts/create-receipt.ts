@@ -1,4 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { sign } from "node:crypto";
 import { dirname, join } from "node:path";
 import {
@@ -103,8 +102,7 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
   await store.issue(receipt);
 
   try {
-    await mkdir(dirname(options.path), { recursive: true });
-    await writeFile(options.path, `${canonicalJson(receipt)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await store.completeReceiptFile(receipt.receiptDigest, options.path);
   } catch (error) {
     await store.rollbackIssue(receipt.receiptDigest);
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {

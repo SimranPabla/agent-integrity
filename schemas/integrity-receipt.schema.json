@@ -13,7 +13,7 @@
     "createdAt": { "type": "string", "format": "date-time" }, "expiresAt": { "type": "string", "format": "date-time" },
     "policyDigest": { "$ref": "#/$defs/sha256" }, "envelopeDigest": { "$ref": "#/$defs/sha256" },
     "verification": { "$ref": "#/$defs/result" },
-    "signature": { "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "value"], "properties": { "algorithm": { "const": "Ed25519" }, "keyId": { "type": "string", "minLength": 1, "maxLength": 256 }, "value": { "type": "string", "minLength": 1 } } },
+    "signature": { "type": "object", "additionalProperties": false, "required": ["algorithm", "keyId", "value"], "properties": { "algorithm": { "const": "Ed25519" }, "keyId": { "type": "string", "minLength": 1, "maxLength": 256 }, "value": { "type": "string", "minLength": 88, "maxLength": 88, "pattern": "^[A-Za-z0-9+/]{86}==$" } } },
     "receiptDigest": { "$ref": "#/$defs/sha256" }
   },
   "$defs": {

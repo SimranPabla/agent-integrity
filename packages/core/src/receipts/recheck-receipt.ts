@@ -53,6 +53,13 @@ function blocked(code: string, message: string): IntegrityFinding {
   return { code, severity: "blocked", message, path: "receipt" };
 }
 
+function canonicalEd25519Signature(value: string): Buffer | undefined {
+  if (!/^[A-Za-z0-9+/]{86}==$/u.test(value)) return undefined;
+  const decoded = Buffer.from(value, "base64");
+  if (decoded.length !== 64 || decoded.toString("base64") !== value) return undefined;
+  return decoded;
+}
+
 function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
   const { receipt, envelope, now } = options;
   if (receipt === null || typeof receipt !== "object") throw new Error("receipt must be an object");
@@ -60,6 +67,7 @@ function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
     throw new Error("unsupported receipt version");
   }
   if (receipt.signature?.algorithm !== "Ed25519" || typeof receipt.signature.keyId !== "string" || typeof receipt.signature.value !== "string") throw new Error("invalid signed receipt");
+  const signatureBytes = canonicalEd25519Signature(receipt.signature.value);
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new Error("now must be a valid Date");
 
   const findings: IntegrityFinding[] = [];
@@ -72,10 +80,12 @@ function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
     findings.push(blocked("receipt.key_revoked", "Receipt signing key is revoked"));
   } else if (key === undefined) {
     findings.push(blocked("receipt.unknown_key", "Receipt signing key is not trusted"));
+  } else if (signatureBytes === undefined) {
+    findings.push(blocked("receipt.invalid_signature_encoding", "Receipt signature must be canonical base64 encoding of exactly 64 bytes"));
   } else {
     let valid = false;
     try {
-      valid = verifySignature(null, Buffer.from(canonicalJson(signaturePayload(receipt)), "utf8"), key, Buffer.from(receipt.signature.value, "base64"));
+      valid = verifySignature(null, Buffer.from(canonicalJson(signaturePayload(receipt)), "utf8"), key, signatureBytes);
     } catch { valid = false; }
     if (!valid) findings.push(blocked("receipt.invalid_signature", "Receipt signature is invalid"));
   }
