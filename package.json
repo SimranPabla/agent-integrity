@@ -1,0 +1,23 @@
+{
+  "name": "agent-integrity-staging",
+  "version": "0.0.0-private",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/protocol packages/core",
+    "typecheck": "tsc -b packages/protocol packages/core --pretty false",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm test && npm run build"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "24.1.0",
+    "typescript": "5.8.3",
+    "vitest": "3.2.7"
+  }
+}
