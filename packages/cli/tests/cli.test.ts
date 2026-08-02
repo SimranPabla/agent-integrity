@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createReceipt, verifyTrustedEnvelope } from "@agent-integrity/core";
 import type { AlphaIntegrityReceipt, IntegrityEnvelope } from "@agent-integrity/protocol";
 import { validEnvelope } from "../../core/tests/support/valid-envelope.js";
+import { receiptSigningOptions, receiptTrust } from "../../core/tests/support/receipt-keys.js";
 
 const execFileAsync = promisify(execFile);
 const root = new URL("../../..", import.meta.url).pathname;
@@ -94,18 +95,20 @@ describe("integrity CLI", () => {
     const receipt = await createReceipt({
       runId: "cli-test", path: receiptPath, envelope, verification,
       context,
+      ...receiptSigningOptions,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
-      expiresAt: new Date("2026-08-03T00:00:00.000Z"),
+      expiresAt: new Date("2026-08-02T02:00:00.000Z"),
+      maxLifetimeMs: 7_200_000,
     });
     const recheck = await run("recheck", {
-      receipt, envelope, context, now: "2026-08-02T01:00:00.000Z",
+      receipt, envelope, context, trust: { ...receiptTrust, maxLifetimeMs: 7_200_000 }, now: "2026-08-02T01:00:00.000Z",
     });
     expect(recheck).toMatchObject({ code: 0, output: { status: "PASS" }, stderr: "" });
 
     const inspect = await run("inspect-receipt", { receipt });
     expect(inspect.code).toBe(0);
     expect(inspect.output).toMatchObject({
-      validDigest: true, runId: "cli-test", status: "PASS", signatureStatus: "unsigned",
+      digestMatches: true, runId: "cli-test", status: "PASS", signatureAlgorithm: "Ed25519", keyId: "test-key-1",
     });
     expect(JSON.stringify(inspect.output)).not.toContain("sources");
     expect(JSON.parse(await readFile(receiptPath, "utf8"))).toEqual(receipt);

@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createReceipt, recheckTrustedReceipt, verifyTrustedEnvelope } from "../../src/index.js";
 import { trustedEnvelopeFixture } from "../support/trusted-envelope.js";
+import { receiptSigner, receiptSigningOptions, receiptTrust } from "../support/receipt-keys.js";
 
-describe("alpha receipts", () => {
-  it("persists an explicitly unsigned content-bound receipt without overwriting", async () => {
+describe("signed alpha receipts", () => {
+  it("persists a producer-authenticated content-bound receipt without overwriting", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-receipt-"));
     const path = join(directory, "run-1.json");
     const { envelope, context } = await trustedEnvelopeFixture();
@@ -17,11 +18,13 @@ describe("alpha receipts", () => {
       envelope,
       verification,
       context,
+      ...receiptSigningOptions,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
 
-    expect(receipt.signature).toEqual({ status: "unsigned" });
+    expect(receipt.signature.algorithm).toBe("Ed25519");
+    expect(receipt.signature.keyId).toBe(receiptSigner.keyId);
     expect(receipt.envelopeDigest).toBe(verification.envelopeDigest);
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual(receipt);
     await expect(createReceipt({
@@ -30,6 +33,7 @@ describe("alpha receipts", () => {
       envelope,
       verification,
       context,
+      ...receiptSigningOptions,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     })).rejects.toThrow(/already exists/u);
@@ -47,6 +51,7 @@ describe("alpha receipts", () => {
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
       runRegistryDirectory: directory,
+      ...receiptSigningOptions,
     };
     await createReceipt({ ...common, path: join(directory, "first.json") });
     await expect(createReceipt({ ...common, path: join(directory, "second.json") }))
@@ -63,10 +68,11 @@ describe("alpha receipts", () => {
       envelope,
       verification,
       context,
+      ...receiptSigningOptions,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
-    const result = await recheckTrustedReceipt({ receipt, envelope, context, now: new Date("2026-08-02T00:30:00.000Z") });
+    const result = await recheckTrustedReceipt({ trust: receiptTrust, receipt, envelope, context, now: new Date("2026-08-02T00:30:00.000Z") });
     expect(result.status).toBe("PASS");
   });
 
@@ -80,10 +86,11 @@ describe("alpha receipts", () => {
       envelope,
       verification,
       context,
+      ...receiptSigningOptions,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
-    const result = await recheckTrustedReceipt({ receipt, envelope, context, now: new Date("2026-08-02T01:00:00.000Z") });
+    const result = await recheckTrustedReceipt({ trust: receiptTrust, receipt, envelope, context, now: new Date("2026-08-02T01:00:00.000Z") });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.map((finding) => finding.code)).toContain("receipt.expired");
   });

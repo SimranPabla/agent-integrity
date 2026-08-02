@@ -54,13 +54,13 @@ Mitigation:
 - add domain-specific deterministic checks outside the core;
 - never label a model-based relevance score as deterministic proof.
 
-## Unsigned alpha receipts
+## Signed receipts are not yet single-use
 
-Protocol `1-alpha` receipts contain an envelope digest, recorded outcome, timestamps, and a caller-recomputable self-digest. Trusted creation and recheck recollect declared source bytes. Receipt creation refuses an existing output path or run-ID marker in one configured local store.
+Receipt `2-alpha` uses Ed25519 to authenticate a producer and binds issuer, audience, purpose, nonce, engine version, policy, envelope, outcome, and timestamps. Trusted creation and recheck recollect declared source bytes.
 
-Receipts do not contain an engine version, audience, nonce, signature, or consumption state. Recheck does not consume a receipt or prevent repeated use of the same unexpired receipt. An actor who can delete or replace the local registry can defeat its duplicate-run check. These records do not authenticate who created them.
+Receipts do not yet have atomic consumption state. Recheck does not consume a receipt or prevent repeated use of the same valid receipt. An actor who steals a signing key can forge its producer identity; an actor who changes the trusted-key configuration can alter the trust boundary.
 
-Do not use them as third-party attestations, signed provenance, or identity proof. Cryptographic signing, key rotation, revocation, and a documented trust-root ceremony are required before making those claims.
+Do not treat a signature as proof that response claims are true. Production use still requires protected key custody, rotation, revocation distribution, and a documented trust-root ceremony.
 
 ## Host bypass
 

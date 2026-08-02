@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { sign } from "node:crypto";
 import { dirname, join } from "node:path";
 import {
   PROTOCOL_VERSION,
@@ -21,6 +22,16 @@ export interface CreateReceiptOptions {
   readonly createdAt: Date;
   readonly expiresAt: Date;
   readonly runRegistryDirectory?: string;
+  readonly signer: {
+    readonly keyId: string;
+    readonly privateKey: string;
+    readonly issuer: string;
+  };
+  readonly audience: string;
+  readonly purpose: string;
+  readonly nonce: string;
+  readonly engineVersion: string;
+  readonly maxLifetimeMs?: number;
 }
 
 function isoDate(value: Date, name: string): string {
@@ -39,6 +50,13 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
   if (options.expiresAt.getTime() <= options.createdAt.getTime()) {
     throw new Error("expiresAt must be later than createdAt");
   }
+  const maxLifetimeMs = options.maxLifetimeMs ?? 3_600_000;
+  if (options.expiresAt.getTime() - options.createdAt.getTime() > maxLifetimeMs) {
+    throw new Error("receipt lifetime exceeds configured maximum");
+  }
+  for (const [name, value] of Object.entries({ keyId: options.signer.keyId, issuer: options.signer.issuer, audience: options.audience, purpose: options.purpose, nonce: options.nonce, engineVersion: options.engineVersion })) {
+    if (typeof value !== "string" || value.length < 1 || value.length > 256) throw new Error(`${name} must be 1-256 characters`);
+  }
 
   const liveVerification = await verifyTrustedEnvelope(options.envelope, options.context);
   if (liveVerification.envelopeDigest === undefined) {
@@ -50,11 +68,16 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
 
   const body = {
     protocolVersion: PROTOCOL_VERSION,
-    receiptVersion: "1-alpha" as const,
-    signature: { status: "unsigned" as const },
+    receiptVersion: "2-alpha" as const,
+    engineVersion: options.engineVersion,
+    issuer: options.signer.issuer,
+    audience: options.audience,
+    purpose: options.purpose,
+    nonce: options.nonce,
     runId: options.runId,
     createdAt,
     expiresAt,
+    policyDigest: sha256Canonical(options.envelope.policy),
     envelopeDigest: liveVerification.envelopeDigest,
     verification: {
       protocolVersion: liveVerification.protocolVersion,
@@ -62,7 +85,13 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
       findings: liveVerification.findings,
     },
   };
-  const receipt: AlphaIntegrityReceipt = { ...body, receiptDigest: sha256Canonical(body) };
+  const signature = {
+    algorithm: "Ed25519" as const,
+    keyId: options.signer.keyId,
+    value: sign(null, Buffer.from(canonicalJson(body), "utf8"), options.signer.privateKey).toString("base64"),
+  };
+  const signed = { ...body, signature };
+  const receipt: AlphaIntegrityReceipt = { ...signed, receiptDigest: sha256Canonical(signed) };
 
   const registryDirectory = options.runRegistryDirectory ?? join(dirname(options.path), ".integrity-run-ids");
   await mkdir(registryDirectory, { recursive: true });

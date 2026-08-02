@@ -222,8 +222,9 @@ A recheck validates:
 - freshly recollected declared source bytes and evidence anchors;
 - expiry;
 - recorded outcome consistency.
+- Ed25519 producer signature, trusted/revoked key state, issuer, audience, purpose, engine version, policy digest, and timestamp bounds.
 
-Alpha receipts are unsigned. They do not contain engine version, audience, nonce, or consumption state; recheck does not prevent repeated use of the same unexpired receipt. Create-new writes and local run-ID markers refuse duplicates only while that storage remains intact. Keep verifier and receipt storage inside the same trusted application boundary.
+Signed alpha receipts require an Ed25519 private key at issuance and an explicit trusted public-key set at recheck. Protect private keys outside the repository and configure key IDs, issuer, audience, purpose, engine version, maximum lifetime, clock skew, and revocation consistently. Recheck still does not prevent repeated use; atomic single-use consumption is the next planned slice.
 
 ## Result handling and remediation
 

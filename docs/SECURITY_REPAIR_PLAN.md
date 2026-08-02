@@ -68,11 +68,11 @@
 
 **Files:** protocol receipt types/schema, receipt create/inspect/recheck modules, CLI/SDK, tests
 
-- [ ] Add failing forgery, wrong-key, wrong-audience, wrong-purpose, future-time, long-lifetime, and engine-version tests.
-- [ ] Define the signed body with Ed25519 key ID, issuer, audience, purpose, nonce, engine/policy/envelope digests, and timestamps.
-- [ ] Verify against a trusted key set and revocation configuration.
-- [ ] Rename digest-only inspection fields and remove validity claims.
-- [ ] Run all tests and commit.
+- [x] Add failing forgery, wrong-key, wrong-audience, wrong-purpose, future-time, long-lifetime, and engine-version tests.
+- [x] Define the signed body with Ed25519 key ID, issuer, audience, purpose, nonce, engine/policy/envelope digests, and timestamps.
+- [x] Verify against a trusted key set and revocation configuration.
+- [x] Rename digest-only inspection fields and remove validity claims.
+- [x] Run all tests and commit.
 
 ### Task 7: Atomic issuance and consumption registry
 

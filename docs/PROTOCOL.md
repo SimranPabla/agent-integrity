@@ -91,7 +91,7 @@ Implementations must not hash pretty-printed JSON, source YAML text, or runtime-
 
 SHA-256 is used for alpha content digests. Source records bind exact bytes. Response binding includes exact response content, so a one-byte mutation changes the envelope digest and invalidates release.
 
-SHA-256 digests provide integrity, not identity. Alpha receipts are unsigned and do not authenticate a producer.
+SHA-256 digests alone provide integrity, not identity. Receipt `2-alpha` adds Ed25519 producer authentication; its assurance depends on trusted-key configuration and private-key custody.
 
 ## Outcomes
 
@@ -111,21 +111,20 @@ New finding codes may be added during alpha. Changing the meaning of an existing
 
 ## Receipts
 
-An alpha receipt binds:
+A `2-alpha` receipt binds:
 
 - protocol and receipt version;
 - unique run identifier;
 - complete envelope digest;
 - outcome;
 - creation and expiry timestamps;
-- unsigned signature-status marker;
+- engine version, issuer, audience, purpose, nonce, and policy digest;
+- Ed25519 signing key ID and signature;
 - receipt self-digest.
 
-Receipt creation requires trusted verification and recollects every declared source before writing. Writers use create-new local-file semantics and refuse an existing output path or run-ID marker in the configured local registry. Recheck compares the self-digest, envelope digest, recorded outcome, expiry, and freshly recollected source bytes.
+Receipt creation requires trusted verification and recollects every declared source before signing and writing. Recheck verifies the Ed25519 signature against an explicit trusted-key set, rejects revoked/unknown keys, checks issuer/audience/purpose/engine/policy/time bindings, and recollects source bytes.
 
-Protocol `1-alpha` does not include an engine version, a separate live-content digest, a nonce, an audience, or consumption state. Recheck does not consume a receipt and does not prevent the same unexpired receipt from being checked repeatedly. Local create-new files are not immutable against an actor who can delete or replace their storage.
-
-Because receipts are unsigned, they are mutation-check records inside one trusted application boundary, not independent provenance or replay-prevention artifacts.
+Receipt `2-alpha` authenticates its configured producer but does not yet provide atomic consumption state. Recheck does not consume a receipt and does not prevent repeated use of the same valid receipt. Key custody, rotation, and trust-root distribution remain host responsibilities until the next receipt-store slice lands.
 
 ## Strict YAML policy
 

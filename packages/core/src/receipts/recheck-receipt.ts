@@ -5,6 +5,8 @@ import {
   type IntegrityFinding,
   type ReceiptRecheckResult,
 } from "@agent-integrity/protocol";
+import { verify as verifySignature } from "node:crypto";
+import { canonicalJson } from "../canonical-json.js";
 import { sha256Canonical } from "../hash.js";
 import { calculateOutcome, checkerFailure } from "../outcome.js";
 import { verifyEnvelope } from "../verify.js";
@@ -14,10 +16,25 @@ export interface RecheckReceiptOptions {
   readonly receipt: AlphaIntegrityReceipt;
   readonly envelope: IntegrityEnvelope;
   readonly now: Date;
+  readonly trust: {
+    readonly keys: Readonly<Record<string, string>>;
+    readonly revokedKeyIds?: readonly string[];
+    readonly issuer: string;
+    readonly audience: string;
+    readonly purpose: string;
+    readonly engineVersion: string;
+    readonly maxClockSkewMs?: number;
+    readonly maxLifetimeMs?: number;
+  };
 }
 
 function receiptBody(receipt: AlphaIntegrityReceipt): Omit<AlphaIntegrityReceipt, "receiptDigest"> {
   const { receiptDigest: _receiptDigest, ...body } = receipt;
+  return body;
+}
+
+function unsignedBody(receipt: AlphaIntegrityReceipt): Omit<AlphaIntegrityReceipt, "receiptDigest" | "signature"> {
+  const { receiptDigest: _receiptDigest, signature: _signature, ...body } = receipt;
   return body;
 }
 
@@ -28,10 +45,10 @@ function blocked(code: string, message: string): IntegrityFinding {
 function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
   const { receipt, envelope, now } = options;
   if (receipt === null || typeof receipt !== "object") throw new Error("receipt must be an object");
-  if (receipt.protocolVersion !== PROTOCOL_VERSION || receipt.receiptVersion !== "1-alpha") {
+  if (receipt.protocolVersion !== PROTOCOL_VERSION || receipt.receiptVersion !== "2-alpha") {
     throw new Error("unsupported receipt version");
   }
-  if (receipt.signature?.status !== "unsigned") throw new Error("invalid alpha receipt signature status");
+  if (receipt.signature?.algorithm !== "Ed25519" || typeof receipt.signature.keyId !== "string" || typeof receipt.signature.value !== "string") throw new Error("invalid signed receipt");
   if (!(now instanceof Date) || !Number.isFinite(now.getTime())) throw new Error("now must be a valid Date");
 
   const findings: IntegrityFinding[] = [];
@@ -39,10 +56,33 @@ function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
   if (calculatedReceiptDigest !== receipt.receiptDigest) {
     findings.push(blocked("receipt.mutated", "Receipt content changed after creation"));
   }
+  const key = options.trust.keys[receipt.signature.keyId];
+  if (options.trust.revokedKeyIds?.includes(receipt.signature.keyId)) {
+    findings.push(blocked("receipt.key_revoked", "Receipt signing key is revoked"));
+  } else if (key === undefined) {
+    findings.push(blocked("receipt.unknown_key", "Receipt signing key is not trusted"));
+  } else {
+    let valid = false;
+    try {
+      valid = verifySignature(null, Buffer.from(canonicalJson(unsignedBody(receipt)), "utf8"), key, Buffer.from(receipt.signature.value, "base64"));
+    } catch { valid = false; }
+    if (!valid) findings.push(blocked("receipt.invalid_signature", "Receipt signature is invalid"));
+  }
+  if (receipt.issuer !== options.trust.issuer) findings.push(blocked("receipt.wrong_issuer", "Receipt issuer does not match"));
+  if (receipt.audience !== options.trust.audience) findings.push(blocked("receipt.wrong_audience", "Receipt audience does not match"));
+  if (receipt.purpose !== options.trust.purpose) findings.push(blocked("receipt.wrong_purpose", "Receipt purpose does not match"));
+  if (receipt.engineVersion !== options.trust.engineVersion) findings.push(blocked("receipt.wrong_engine", "Receipt engine version does not match"));
+  if (receipt.policyDigest !== sha256Canonical(envelope.policy)) findings.push(blocked("receipt.policy_changed", "Receipt policy does not match"));
   const expiresAt = Date.parse(receipt.expiresAt);
   const createdAt = Date.parse(receipt.createdAt);
+  const maxClockSkewMs = options.trust.maxClockSkewMs ?? 60_000;
+  const maxLifetimeMs = options.trust.maxLifetimeMs ?? 3_600_000;
   if (!Number.isFinite(expiresAt) || !Number.isFinite(createdAt) || expiresAt <= createdAt) {
     findings.push(blocked("receipt.invalid_time", "Receipt timestamps are invalid"));
+  } else if (createdAt > now.getTime() + maxClockSkewMs) {
+    findings.push(blocked("receipt.future_issued", "Receipt creation time is too far in the future"));
+  } else if (expiresAt - createdAt > maxLifetimeMs) {
+    findings.push(blocked("receipt.lifetime_exceeded", "Receipt lifetime exceeds configured maximum"));
   } else if (now.getTime() >= expiresAt) {
     findings.push(blocked("receipt.expired", "Receipt has expired"));
   }

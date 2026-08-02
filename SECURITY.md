@@ -62,6 +62,6 @@ Maintainers will acknowledge a complete report, reproduce it, assess affected ve
 
 ## Alpha receipt warning
 
-`1-alpha` receipts are unsigned. They detect mutation inside the documented application boundary but do not authenticate a producer. Reports that assume a cryptographic identity guarantee outside that boundary are not valid until signing is implemented.
+Receipt `2-alpha` authenticates a configured producer with Ed25519 and checks explicit trust bindings. It does not yet implement atomic single-use consumption, secure key custody, or trust-root distribution. A valid signature authenticates the configured key, not the truth of the response.
 
 Read [Threat Model](docs/THREAT_MODEL.md) and [Limitations](docs/LIMITATIONS.md) before evaluating impact.

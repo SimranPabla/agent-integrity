@@ -81,11 +81,13 @@ async function main(): Promise<never> {
     const now = new Date(request.now);
     if (!Number.isFinite(now.getTime())) return invalidInput("now must be a valid ISO timestamp");
     if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
+    if (!isRecord(request.trust)) return invalidInput("trust with keys and receipt expectations is required");
     const result = await recheckTrustedReceipt({
       receipt: request.receipt as AlphaIntegrityReceipt,
       envelope: request.envelope as IntegrityEnvelope,
       now,
       context: request.context as never,
+      trust: request.trust as never,
     });
     return emit(result, exitCode(result.status));
   }
@@ -101,9 +103,10 @@ async function main(): Promise<never> {
       createdAt: receipt.createdAt,
       expiresAt: receipt.expiresAt,
       status: receipt.verification?.status,
-      signatureStatus: receipt.signature?.status,
+      signatureAlgorithm: receipt.signature?.algorithm,
+      keyId: receipt.signature?.keyId,
       receiptDigest: receipt.receiptDigest,
-      validDigest: calculatedDigest === receipt.receiptDigest,
+      digestMatches: calculatedDigest === receipt.receiptDigest,
     }, calculatedDigest === receipt.receiptDigest ? 0 : 3);
   } catch (error) {
     return invalidInput(error instanceof Error ? error.message : "receipt inspection failed");

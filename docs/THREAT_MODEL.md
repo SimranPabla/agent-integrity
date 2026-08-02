@@ -123,7 +123,7 @@ Agent Integrity does not establish:
 - model safety or absence of harmful content;
 - code correctness or safe tool execution;
 - authorization to perform actions;
-- identity or provenance from unsigned alpha receipts;
+- truth or semantic correctness from a valid producer signature;
 - protection against a malicious operating system or compromised verifier build;
 - availability under denial-of-service attacks.
 

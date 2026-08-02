@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createReceipt, recheckTrustedReceipt, verifyTrustedEnvelope } from "../../src/index.js";
 import { trustedEnvelopeFixture } from "../support/trusted-envelope.js";
+import { receiptSigningOptions, receiptTrust } from "../support/receipt-keys.js";
 
 describe("receipt replay and mutation resistance", () => {
   it("blocks replay against a changed response", async () => {
@@ -16,11 +17,12 @@ describe("receipt replay and mutation resistance", () => {
       envelope,
       verification,
       context,
+      ...receiptSigningOptions,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
     const changed = { ...envelope, response: { content: "Supported response!", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 19, sha256: "f32e91553e55c5c345097029c44fbb5afb3e1c91c957cbc36752e5a91e4a05cc" }] } };
-    const result = await recheckTrustedReceipt({ receipt, envelope: changed, context, now: new Date("2026-08-02T00:30:00.000Z") });
+    const result = await recheckTrustedReceipt({ trust: receiptTrust, receipt, envelope: changed, context, now: new Date("2026-08-02T00:30:00.000Z") });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.map((finding) => finding.code)).toContain("receipt.subject_changed");
   });
@@ -35,11 +37,12 @@ describe("receipt replay and mutation resistance", () => {
       envelope,
       verification,
       context,
+      ...receiptSigningOptions,
       createdAt: new Date("2026-08-02T00:00:00.000Z"),
       expiresAt: new Date("2026-08-02T01:00:00.000Z"),
     });
     const edited = { ...receipt, runId: "attacker-run" };
-    const result = await recheckTrustedReceipt({ receipt: edited, envelope, context, now: new Date("2026-08-02T00:30:00.000Z") });
+    const result = await recheckTrustedReceipt({ trust: receiptTrust, receipt: edited, envelope, context, now: new Date("2026-08-02T00:30:00.000Z") });
     expect(result.status).toBe("BLOCKED");
     expect(result.findings.map((finding) => finding.code)).toContain("receipt.mutated");
   });

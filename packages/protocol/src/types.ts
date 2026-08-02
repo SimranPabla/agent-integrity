@@ -44,15 +44,27 @@ export interface EnvelopeVerificationResult extends IntegrityResult {
   readonly envelopeDigest?: string;
 }
 
+export interface ReceiptSignature {
+  readonly algorithm: "Ed25519";
+  readonly keyId: string;
+  readonly value: string;
+}
+
 export interface AlphaIntegrityReceipt {
   readonly protocolVersion: typeof PROTOCOL_VERSION;
-  readonly receiptVersion: "1-alpha";
-  readonly signature: { readonly status: "unsigned" };
+  readonly receiptVersion: "2-alpha";
+  readonly engineVersion: string;
+  readonly issuer: string;
+  readonly audience: string;
+  readonly purpose: string;
+  readonly nonce: string;
   readonly runId: string;
   readonly createdAt: string;
   readonly expiresAt: string;
+  readonly policyDigest: string;
   readonly envelopeDigest: string;
   readonly verification: IntegrityResult;
+  readonly signature: ReceiptSignature;
   readonly receiptDigest: string;
 }
 
