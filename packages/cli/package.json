@@ -1,14 +1,13 @@
 {
   "name": "@agent-integrity/cli",
-  "version": "0.0.0-private",
-  "private": true,
+  "version": "0.1.0-alpha.0",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
     "integrity": "./dist/cli.js"
   },
   "dependencies": {
-    "@agent-integrity/core": "0.0.0-private",
-    "@agent-integrity/protocol": "0.0.0-private"
+    "@agent-integrity/core": "0.1.0-alpha.0",
+    "@agent-integrity/protocol": "0.1.0-alpha.0"
   }
 }

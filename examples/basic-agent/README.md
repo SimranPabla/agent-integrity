@@ -1,7 +1,52 @@
-# Basic agent
+# Basic Agent Example
 
-This example shows the intended agent-first integration: the SDK constructs a
-run envelope, the independent core verifies it, and the release guard returns
-the exact response only on `PASS`.
+This is the smallest complete agent-first integration. It demonstrates the boundary between an agent draft and the deterministic release decision.
 
-Run `node examples/basic-agent/index.mjs` after `npm run build`.
+## What it demonstrates
+
+- constructing a complete envelope through `AgentIntegritySession`;
+- registering exact sources and decision events;
+- mapping a substantive response section to a claim and supporting evidence;
+- calculating a deterministic `PASS`;
+- releasing only the exact verified response.
+
+## Run it
+
+From the repository root:
+
+```bash
+npm ci
+npm run build
+node examples/basic-agent/index.mjs
+```
+
+Expected behavior:
+
+- the process exits `0`;
+- verification returns `PASS`;
+- the release guard returns the exact response;
+- findings are empty.
+
+Read [index.mjs](index.mjs) from top to bottom. The protocol objects are intentionally explicit so you can see what a real retrieval layer and agent adapter must provide.
+
+## Adapt it to an agent framework
+
+1. Replace the synthetic source with records created when your retrieval or file tool reads content.
+2. Replace the synthetic decision event with your reviewed decision registry.
+3. Ask the agent to emit structured claims, evidence references, and response sections alongside its prose.
+4. Validate the structured output before adding it to the session.
+5. Call the verifier after the complete response exists.
+6. Return only the response from the release guard.
+
+Do not stream the raw model draft to the user. Buffer it until verification finishes.
+
+## Try failure cases
+
+- Change the evidence role from supporting to contextual; the claim can no longer satisfy required support.
+- Delete the claim; the substantive response section becomes uncovered.
+- Change the response after verification; the release guard refuses it.
+- Reference a rejected decision; verification blocks the run.
+
+## Production note
+
+This example lets the application populate every object directly. For stronger evidence completeness, source records should come from host-observed retrieval events, not solely from the model’s self-report. See [Limitations](../../docs/LIMITATIONS.md#omitted-evidence).

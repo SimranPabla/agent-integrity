@@ -1,5 +1,29 @@
-# Contradictory evidence
+# Contradictory Evidence Example
 
-The submitted contradiction is not disclosed, so policy routes the response to
-`REVIEW` (CLI exit code `2`). This does not detect evidence omitted entirely
-from the envelope; see `docs/LIMITATIONS.md`.
+This CLI example contains contradictory evidence in the submitted envelope but does not disclose that contradiction in the response. The configured policy routes the result to `REVIEW`.
+
+## Run it
+
+```bash
+npm run build
+node packages/cli/dist/cli.js verify < examples/contradictory-evidence/request.json
+echo $?
+```
+
+Expected:
+
+- JSON output reports `REVIEW`;
+- process exit code is `2`;
+- findings identify the undisclosed contradiction;
+- source and response content are not echoed by the CLI;
+- the application must hold the response for a human.
+
+## Why it is not automatically blocked
+
+Contradiction can require judgment. The sample policy chooses `REVIEW` so a person can inspect the claim, supporting evidence, contradictory evidence, and disclosure. A stricter policy can block the same condition.
+
+## Try it
+
+Copy `request.json`, then change the response disclosure metadata so the contradiction is explicitly addressed. Run verification again and compare the findings. Next, remove the contradictory item entirely and note the limitation: the engine cannot know a source was omitted unless another collector observed it.
+
+This example proves handling of **included** contradictions only. Read [Omitted evidence](../../docs/LIMITATIONS.md#omitted-evidence).

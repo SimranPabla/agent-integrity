@@ -1,16 +1,129 @@
 # Architecture
 
-The public engine has four independent layers:
+Agent Integrity separates agent-authored material from the deterministic component that decides whether an exact response may be released.
 
-1. `protocol` defines versioned, language-neutral JSON structures.
-2. `core` performs deterministic validation, hashing, receipt creation, and
-   rechecking without calling an LLM.
-3. `sdk` helps an agent construct a complete envelope and releases only the
-   exact response bound to a `PASS` result.
-4. `cli` exposes the core through JSON stdin/stdout for other languages.
+## Design goals
 
-The agent is allowed to propose claims and evidence mappings. It is not allowed
-to calculate its own status. The deterministic core is the decision boundary.
+The architecture is designed to provide:
 
-Human-maintained project policy uses a strict YAML subset. Run artifacts use
-canonical JSON so semantically identical key ordering hashes identically.
+- deterministic results from identical inputs;
+- complete-response binding rather than spot-checking selected claims;
+- explicit decision lifecycle handling;
+- stable, language-neutral interchange through JSON;
+- local-first verification without an LLM or hosted service;
+- fail-closed behavior when input or checker state is invalid;
+- integration with an agent without requiring a human-written manifest per run.
+
+It is not an action-control framework, a truth oracle, or an autonomous fact checker.
+
+## Components
+
+### Protocol
+
+`packages/protocol` defines the structures exchanged between agents, collectors, the verifier, and receipt stores. It also parses the one-time project policy using a restricted YAML subset.
+
+The protocol contains:
+
+- source records with exact content digests;
+- decision lifecycle events;
+- response sections and exact response bytes;
+- claims and claim types;
+- evidence items and evidence roles;
+- findings and outcomes;
+- verification receipts and recheck requests.
+
+The JSON protocol is the compatibility boundary. Other languages do not need to reproduce the TypeScript SDK; they can construct valid JSON and call the CLI.
+
+### Core
+
+`packages/core` is the independent deterministic engine. It:
+
+- canonicalizes supported JSON values;
+- calculates SHA-256 digests;
+- validates allowed source roots and exact source bytes;
+- rebuilds active, rejected, and superseded decision state;
+- checks substantive-section coverage;
+- checks supporting, contradictory, and contextual evidence roles;
+- calculates `PASS`, `REVIEW`, or `BLOCKED`;
+- creates immutable alpha receipts;
+- rechecks live content against a receipt;
+- rejects mutation, expiry, replay, duplicate run identifiers, and overwrite attempts.
+
+The core does not call a model or assign semantic truth scores. If a conclusion needs semantic judgment, the policy should route it to `REVIEW`.
+
+### SDK
+
+`packages/sdk` provides agent-facing helpers. `AgentIntegritySession` constructs a complete envelope incrementally while the agent runs. `releaseVerifiedResponse` verifies that the supplied envelope still matches the checked result and returns response bytes only for an unchanged `PASS`.
+
+The SDK reduces integration mistakes, but it is not the trust boundary. The core verifier remains authoritative.
+
+### CLI
+
+`packages/cli` exposes the core through JSON stdin/stdout. This supports Python, Go, Rust, shell scripts, workflow engines, and framework adapters without duplicating verification logic.
+
+The CLI deliberately avoids echoing source and response content. Integrators should still treat request files and receipts as potentially sensitive metadata.
+
+## Verification flow
+
+```text
+Project owner configures policy and approved decision registry
+                         |
+                         v
+Agent reads sources and drafts an exact response
+                         |
+                         v
+Agent/collector creates claims, evidence records, and source hashes
+                         |
+                         v
+SDK builds one complete canonical envelope
+                         |
+                         v
+Core validates structure, policy, sources, decisions, coverage, evidence
+                         |
+             +-----------+-----------+
+             |           |           |
+           PASS        REVIEW      BLOCKED
+             |           |           |
+  exact response       held for      held with
+  may be released      a human       findings
+```
+
+Before release, the SDK rechecks the bound envelope. If any byte or bound field changed, nothing is released.
+
+## Trust boundaries
+
+The agent may propose claims and evidence mappings. It cannot set the outcome. The deterministic core calculates the outcome from the full envelope and policy.
+
+For higher assurance, source observation should be collected independently of the model—for example, in the retrieval layer, tool middleware, or application host. If the model alone reports which sources it read, it can omit a source from the envelope. See [Limitations](LIMITATIONS.md).
+
+The application host is responsible for ensuring users only receive `release.response`, never the pre-verification draft. Logging and streaming need the same discipline: do not stream unverified response bytes to the user and then attempt to retract them.
+
+## Determinism and canonicalization
+
+All bound structures are converted to canonical JSON before hashing. Object key order does not affect the digest; array order does. Unsupported JSON values, duplicate YAML keys, YAML aliases, unsafe tags, invalid paths, and malformed structures are rejected.
+
+Sources are hashed from exact bytes. A source must resolve inside an allowed root. Absolute paths, traversal, and symlink escapes are rejected.
+
+## Failure behavior
+
+Known ambiguity becomes `REVIEW`. Definite rule violations become `BLOCKED`. Invalid input and checker failures fail closed and release no response.
+
+Findings are machine-readable and should be surfaced to the agent developer or a human reviewer. Applications should never convert `REVIEW`, `BLOCKED`, or exceptions into a successful release.
+
+## Deployment patterns
+
+### In-process TypeScript
+
+Use the SDK and core packages in the same Node.js process as the agent host. This has the lowest integration overhead.
+
+### Sidecar CLI
+
+Run the CLI as a child process and exchange JSON over stdin/stdout. This isolates the verifier from a Python, Go, or other host and preserves a single implementation of the rules.
+
+### Service boundary
+
+A future deployment can wrap the CLI/core in a service, but authentication, transport security, tenant isolation, and secure receipt storage are outside the alpha implementation. Local-first use is the supported pattern.
+
+## Extending the system
+
+Add integrations outside the core. Provider adapters should translate framework events into protocol records; they should not alter verdict semantics. Any new language implementation should run the conformance fixtures and reproduce canonical digests, statuses, and finding codes.

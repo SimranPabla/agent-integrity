@@ -1,13 +1,12 @@
 {
   "name": "@agent-integrity/sdk",
-  "version": "0.0.0-private",
-  "private": true,
+  "version": "0.1.0-alpha.0",
   "license": "Apache-2.0",
   "type": "module",
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@agent-integrity/core": "0.0.0-private",
-    "@agent-integrity/protocol": "0.0.0-private"
+    "@agent-integrity/core": "0.1.0-alpha.0",
+    "@agent-integrity/protocol": "0.1.0-alpha.0"
   }
 }
