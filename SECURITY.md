@@ -62,6 +62,6 @@ Maintainers will acknowledge a complete report, reproduce it, assess affected ve
 
 ## Alpha receipt warning
 
-Receipt `2-alpha` authenticates a configured producer with Ed25519 and checks explicit trust bindings. It does not yet implement atomic single-use consumption, secure key custody, or trust-root distribution. A valid signature authenticates the configured key, not the truth of the response.
+Receipt `2-alpha` authenticates a configured producer with Ed25519, checks explicit trust bindings, and supports atomic single-use consumption in one protected local filesystem registry. It does not provide a distributed registry, secure key custody, or trust-root distribution. A valid signature authenticates the configured key, not the truth of the response.
 
 Read [Threat Model](docs/THREAT_MODEL.md) and [Limitations](docs/LIMITATIONS.md) before evaluating impact.

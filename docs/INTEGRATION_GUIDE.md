@@ -224,13 +224,13 @@ A recheck validates:
 - recorded outcome consistency.
 - Ed25519 producer signature, trusted/revoked key state, issuer, audience, purpose, engine version, policy digest, and timestamp bounds.
 
-Signed alpha receipts require an Ed25519 private key at issuance and an explicit trusted public-key set at recheck. Protect private keys outside the repository and configure key IDs, issuer, audience, purpose, engine version, maximum lifetime, clock skew, and revocation consistently. Recheck still does not prevent repeated use; atomic single-use consumption is the next planned slice.
+Signed alpha receipts require an Ed25519 private key at issuance, an explicit trusted public-key set, and a shared `FileReceiptStore` at recheck/release. Protect private keys outside the repository and configure key IDs, issuer, audience, purpose, engine version, maximum lifetime, clock skew, revocation, and the store directory consistently. A successful recheck consumes the receipt exactly once in that local registry.
 
 ## Result handling and remediation
 
 For `REVIEW`, show the human the findings, response, evidence mapping, and contradictions. The reviewer may approve outside the engine, request better evidence, or ask the agent to produce a new run. Do not mutate the verified envelope in place.
 
-For `BLOCKED`, fix the specific rule violation and create a fresh run identifier and receipt. Do not overwrite records. The alpha library does not provide durable or atomic receipt consumption, so a host needing single-use semantics must add its own trusted transaction until the authenticated receipt work lands.
+For `BLOCKED`, fix the specific rule violation and create a fresh run identifier, nonce, and receipt. Do not overwrite or roll back the registry. The local store is atomic for concurrent processes using the same filesystem, but it is not a distributed database and backups must not restore older consumption state.
 
 For checker errors, preserve only safe diagnostic metadata, fail closed, and investigate. Source or response contents should not be placed in general application logs.
 

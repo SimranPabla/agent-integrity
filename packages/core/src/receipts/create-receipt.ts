@@ -10,6 +10,7 @@ import {
 import { canonicalJson } from "../canonical-json.js";
 import { sha256Canonical } from "../hash.js";
 import { verifyTrustedEnvelope, type TrustedVerificationContext } from "../verify-trusted.js";
+import { FileReceiptStore } from "./file-receipt-store.js";
 
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -22,6 +23,7 @@ export interface CreateReceiptOptions {
   readonly createdAt: Date;
   readonly expiresAt: Date;
   readonly runRegistryDirectory?: string;
+  readonly receiptStore?: FileReceiptStore;
   readonly signer: {
     readonly keyId: string;
     readonly privateKey: string;
@@ -93,22 +95,15 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
   const signed = { ...body, signature };
   const receipt: AlphaIntegrityReceipt = { ...signed, receiptDigest: sha256Canonical(signed) };
 
-  const registryDirectory = options.runRegistryDirectory ?? join(dirname(options.path), ".integrity-run-ids");
-  await mkdir(registryDirectory, { recursive: true });
-  const markerPath = join(registryDirectory, options.runId);
-  try {
-    await writeFile(markerPath, `${receipt.receiptDigest}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new Error(`run ID already exists: ${options.runId}`);
-    }
-    throw error;
-  }
+  const registryDirectory = options.runRegistryDirectory ?? join(dirname(options.path), ".integrity-receipts");
+  const store = options.receiptStore ?? new FileReceiptStore(registryDirectory);
+  await store.issue(receipt);
 
   await mkdir(dirname(options.path), { recursive: true });
   try {
     await writeFile(options.path, `${canonicalJson(receipt)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
   } catch (error) {
+    await store.rollbackIssue(receipt.receiptDigest);
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
       throw new Error(`receipt already exists: ${options.path}`);
     }

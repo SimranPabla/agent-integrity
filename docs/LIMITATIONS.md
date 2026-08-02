@@ -54,11 +54,11 @@ Mitigation:
 - add domain-specific deterministic checks outside the core;
 - never label a model-based relevance score as deterministic proof.
 
-## Signed receipts are not yet single-use
+## Single-use receipts depend on a trusted local filesystem
 
 Receipt `2-alpha` uses Ed25519 to authenticate a producer and binds issuer, audience, purpose, nonce, engine version, policy, envelope, outcome, and timestamps. Trusted creation and recheck recollect declared source bytes.
 
-Receipts do not yet have atomic consumption state. Recheck does not consume a receipt or prevent repeated use of the same valid receipt. An actor who steals a signing key can forge its producer identity; an actor who changes the trusted-key configuration can alter the trust boundary.
+The filesystem receipt store atomically changes a receipt from `issued` to `consumed` under a local lock. It is not a distributed transaction system and assumes every consumer uses the same protected store on one filesystem. Copying or restoring an older registry can restore previously consumed state. An actor who steals a signing key can forge its producer identity; an actor who changes the trusted-key configuration can alter the trust boundary.
 
 Do not treat a signature as proof that response claims are true. Production use still requires protected key custody, rotation, revocation distribution, and a documented trust-root ceremony.
 

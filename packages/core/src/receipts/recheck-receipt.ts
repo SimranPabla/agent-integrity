@@ -11,6 +11,7 @@ import { sha256Canonical } from "../hash.js";
 import { calculateOutcome, checkerFailure } from "../outcome.js";
 import { verifyEnvelope } from "../verify.js";
 import { verifyTrustedEnvelope, type TrustedVerificationContext } from "../verify-trusted.js";
+import { FileReceiptStore } from "./file-receipt-store.js";
 
 export interface RecheckReceiptOptions {
   readonly receipt: AlphaIntegrityReceipt;
@@ -119,6 +120,7 @@ export function recheckReceipt(options: RecheckReceiptOptions): ReceiptRecheckRe
 
 export interface RecheckTrustedReceiptOptions extends RecheckReceiptOptions {
   readonly context: TrustedVerificationContext;
+  readonly receiptStore?: FileReceiptStore;
 }
 
 /** Rechecks the receipt against freshly recollected source bytes. */
@@ -131,11 +133,22 @@ export async function recheckTrustedReceipt(options: RecheckTrustedReceiptOption
     if (live.envelopeDigest === undefined) {
       findings.push(blocked("receipt.live_source_check_failed", "Trusted source verification did not produce an envelope digest"));
     }
-    return {
+    const result = {
       ...calculateOutcome(findings),
       ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }),
       ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }),
     };
+    if (result.status === "PASS") {
+      if (options.receiptStore === undefined) {
+        return { ...calculateOutcome([...findings, blocked("receipt.store_required", "A trusted receipt store is required for single-use consumption")]), ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }), ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }) };
+      }
+      try {
+        await options.receiptStore.consume(options.receipt, options.now);
+      } catch (error) {
+        return { ...calculateOutcome([...findings, blocked("receipt.replayed", error instanceof Error ? error.message : "Receipt consumption failed")]), ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }), ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }) };
+      }
+    }
+    return result;
   } catch (error) {
     return checkerFailure(error);
   }

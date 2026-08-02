@@ -1,9 +1,10 @@
-import { sha256Canonical, verifyTrustedEnvelope, type TrustedVerificationContext } from "@agent-integrity/core";
+import { FileReceiptStore, recheckTrustedReceipt, sha256Canonical, verifyTrustedEnvelope, type RecheckReceiptOptions, type TrustedVerificationContext } from "@agent-integrity/core";
 import {
   PROTOCOL_VERSION,
   type EnvelopeVerificationResult,
   type IntegrityEnvelope,
   type IntegrityResult,
+  type AlphaIntegrityReceipt,
 } from "@agent-integrity/protocol";
 
 export interface ReleaseVerifiedResponseOptions {
@@ -24,6 +25,13 @@ export interface HeldResponse {
 }
 
 export type ReleaseResult = ReleasedResponse | HeldResponse;
+
+export interface ReleaseVerifiedReceiptOptions extends ReleaseVerifiedResponseOptions {
+  readonly receipt: AlphaIntegrityReceipt;
+  readonly receiptStore: FileReceiptStore;
+  readonly now: Date;
+  readonly trust: RecheckReceiptOptions["trust"];
+}
 
 function mismatchResult(message: string): EnvelopeVerificationResult {
   const result: IntegrityResult = {
@@ -55,4 +63,13 @@ export async function releaseVerifiedResponse(options: ReleaseVerifiedResponseOp
       verification: mismatchResult("Release verification failed closed"),
     };
   }
+}
+
+/** Authenticates and atomically consumes a signed receipt before releasing its exact response. */
+export async function releaseVerifiedReceipt(options: ReleaseVerifiedReceiptOptions): Promise<ReleaseResult> {
+  const release = await releaseVerifiedResponse(options);
+  if (release.status !== "PASS") return release;
+  const consumed = await recheckTrustedReceipt({ receipt: options.receipt, envelope: options.envelope, context: options.context, receiptStore: options.receiptStore, now: options.now, trust: options.trust });
+  if (consumed.status !== "PASS") return { status: consumed.status, verification: consumed };
+  return release;
 }

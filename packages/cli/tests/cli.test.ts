@@ -101,7 +101,7 @@ describe("integrity CLI", () => {
       maxLifetimeMs: 7_200_000,
     });
     const recheck = await run("recheck", {
-      receipt, envelope, context, trust: { ...receiptTrust, maxLifetimeMs: 7_200_000 }, now: "2026-08-02T01:00:00.000Z",
+      receipt, envelope, context, trust: { ...receiptTrust, maxLifetimeMs: 7_200_000 }, now: "2026-08-02T01:00:00.000Z", receiptStoreDirectory: join(directory, ".integrity-receipts"),
     });
     expect(recheck).toMatchObject({ code: 0, output: { status: "PASS" }, stderr: "" });
 

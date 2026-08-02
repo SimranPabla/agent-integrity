@@ -78,11 +78,11 @@
 
 **Files:** receipt store abstraction/filesystem store, release guard, CLI, concurrency tests
 
-- [ ] Add failing duplicate, copied-receipt, concurrent-consumption, orphan-write, and restored-store tests.
-- [ ] Atomically issue receipt plus run/nonce state.
-- [ ] Atomically consume once during release/recheck.
-- [ ] Make partial failures recoverable and enforce safe permissions.
-- [ ] Run all tests and commit.
+- [x] Add failing duplicate, copied-receipt, concurrent-consumption, orphan-write, and restored-store tests.
+- [x] Atomically issue receipt plus run/nonce state.
+- [x] Atomically consume once during release/recheck.
+- [x] Make partial failures recoverable and enforce safe permissions.
+- [x] Run all tests and commit.
 
 ## Chunk 4: Public usability and release gate
 

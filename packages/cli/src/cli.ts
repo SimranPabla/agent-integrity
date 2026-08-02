@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { stdin, stdout } from "node:process";
 import {
+  FileReceiptStore,
   parsePolicy,
   recheckTrustedReceipt,
   sha256Canonical,
@@ -82,12 +83,14 @@ async function main(): Promise<never> {
     if (!Number.isFinite(now.getTime())) return invalidInput("now must be a valid ISO timestamp");
     if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
     if (!isRecord(request.trust)) return invalidInput("trust with keys and receipt expectations is required");
+    if (typeof request.receiptStoreDirectory !== "string" || request.receiptStoreDirectory.length === 0) return invalidInput("receiptStoreDirectory is required for single-use consumption");
     const result = await recheckTrustedReceipt({
       receipt: request.receipt as AlphaIntegrityReceipt,
       envelope: request.envelope as IntegrityEnvelope,
       now,
       context: request.context as never,
       trust: request.trust as never,
+      receiptStore: new FileReceiptStore(request.receiptStoreDirectory),
     });
     return emit(result, exitCode(result.status));
   }

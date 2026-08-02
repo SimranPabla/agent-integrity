@@ -30,7 +30,7 @@ Decision assurance is limited to the current trusted YAML snapshot. The verifier
 
 Current version: `0.1.0-alpha.0` using protocol `1-alpha`.
 
-This is alpha software. Protocols and APIs may change before `1.0.0`. Receipt `2-alpha` uses Ed25519 producer authentication but does not yet implement atomic single-use consumption. See [Security](SECURITY.md), [Protocol](docs/PROTOCOL.md), and [Limitations](docs/LIMITATIONS.md).
+This is alpha software. Protocols and APIs may change before `1.0.0`. Receipt `2-alpha` uses Ed25519 producer authentication and a local filesystem registry for atomic single-use consumption. The registry must remain on one host filesystem and be protected from untrusted modification. See [Security](SECURITY.md), [Protocol](docs/PROTOCOL.md), and [Limitations](docs/LIMITATIONS.md).
 
 ## Requirements
 
