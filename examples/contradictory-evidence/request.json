@@ -1,0 +1,11 @@
+{
+  "envelope": {
+    "protocolVersion": "1-alpha",
+    "policy": { "version": 1, "sources": { "allowedRoots": ["docs"] }, "decisions": { "path": "integrity/decisions.yaml" }, "rules": { "requireEvidenceFor": ["factual"], "contradictions": "review", "rejectedDecisions": "block", "responseMutation": "block", "replay": "block" } },
+    "response": { "content": "The service is available.", "sections": [{ "sectionId": "answer", "substantive": true }] },
+    "sources": [{ "sourceId": "status", "path": "docs/status.md", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "size": 20 }],
+    "decisions": [],
+    "evidence": [{ "evidenceId": "status-check", "sourceId": "status" }],
+    "claims": [{ "claimId": "availability", "sectionId": "answer", "kind": "factual", "evidence": [{ "evidenceId": "status-check", "role": "supporting", "support": "direct" }, { "evidenceId": "status-check", "role": "contradictory", "disclosed": false }] }]
+  }
+}

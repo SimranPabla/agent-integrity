@@ -197,10 +197,10 @@
 - Create: `CONTRIBUTING.md`
 - Create: `LICENSE`
 
-- [ ] Add runnable synthetic examples without ARC data.
-- [ ] Publish a language-neutral conformance fixture set.
-- [ ] Add threat-model, limitation, contribution, and vulnerability-reporting docs.
-- [ ] Run typecheck, all tests, build, dependency audit, and secret scan.
-- [ ] Add a plain-language offline operational runbook.
-- [ ] Present the private staging release candidate for explicit approval before
+- [x] Add runnable synthetic examples without ARC data.
+- [x] Publish a language-neutral conformance fixture set.
+- [x] Add threat-model, limitation, contribution, and vulnerability-reporting docs.
+- [x] Run typecheck, all tests, build, dependency audit, and secret scan.
+- [x] Add a plain-language offline operational runbook.
+- [x] Present the private staging release candidate for explicit approval before
   creating any public remote or publishing a package.

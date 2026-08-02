@@ -2,6 +2,7 @@
   "name": "agent-integrity-staging",
   "version": "0.0.0-private",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "workspaces": [
     "packages/*"
