@@ -1,4 +1,4 @@
-import { sha256Canonical, verifyEnvelope } from "@agent-integrity/core";
+import { sha256Canonical, verifyTrustedEnvelope, type TrustedVerificationContext } from "@agent-integrity/core";
 import {
   PROTOCOL_VERSION,
   type EnvelopeVerificationResult,
@@ -9,6 +9,7 @@ import {
 export interface ReleaseVerifiedResponseOptions {
   readonly envelope: IntegrityEnvelope;
   readonly verification: EnvelopeVerificationResult;
+  readonly context: TrustedVerificationContext;
 }
 
 export interface ReleasedResponse {
@@ -34,9 +35,9 @@ function mismatchResult(message: string): EnvelopeVerificationResult {
 }
 
 /** Rechecks all bound input and releases only the exact response verified as PASS. */
-export function releaseVerifiedResponse(options: ReleaseVerifiedResponseOptions): ReleaseResult {
+export async function releaseVerifiedResponse(options: ReleaseVerifiedResponseOptions): Promise<ReleaseResult> {
   try {
-    const live = verifyEnvelope(options.envelope);
+    const live = await verifyTrustedEnvelope(options.envelope, options.context);
     if (live.envelopeDigest === undefined) {
       return { status: "BLOCKED", verification: live };
     }

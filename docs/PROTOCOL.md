@@ -22,6 +22,8 @@ A complete response envelope binds all data needed to calculate an outcome:
 
 Verification covers the whole envelope. Protocol `1-alpha` requires ordered sections to partition every UTF-8 response byte exactly once, and every section must have at least one claim.
 
+Each evidence item may carry an exact source byte anchor with inclusive `byteStart`, exclusive `byteEnd`, and SHA-256. Trusted verification requires the anchor, recollects the referenced source, checks the range, and hashes those actual bytes. The pure `verifyEnvelope` function remains a structural verifier and does not claim live filesystem verification; release and CLI verification use the trusted asynchronous path.
+
 ## Response sections
 
 Sections provide stable identifiers for parts of a human-readable response. Each section contains an inclusive `byteStart`, exclusive `byteEnd`, and `sha256` of those exact UTF-8 bytes. Ranges must be ordered, non-empty, non-overlapping, begin and end on UTF-8 code-point boundaries, start at byte zero, and end at the response byte length. A non-empty response requires at least one section; an empty response has none.

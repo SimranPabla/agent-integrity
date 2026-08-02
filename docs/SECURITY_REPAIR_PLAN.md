@@ -45,12 +45,12 @@
 
 **Files:** source collection modules, verification context/orchestrator, SDK/CLI, tests
 
-- [ ] Add failing fabricated-record and post-verification mutation tests.
-- [ ] Require project root and validated allowed roots in trusted verification.
-- [ ] Recollect every source and compare normalized path, size, and digest.
-- [ ] Add evidence byte anchors and validate their digest against source bytes.
-- [ ] Harden open/race assumptions and document remaining platform limits.
-- [ ] Run all tests and commit.
+- [x] Add failing fabricated-record and post-verification mutation tests.
+- [x] Require project root and validated allowed roots in trusted verification.
+- [x] Recollect every source and compare normalized path, size, and digest.
+- [x] Add evidence byte anchors and validate their digest against source bytes.
+- [x] Harden open/race assumptions and document remaining platform limits.
+- [x] Run all tests and commit.
 
 ### Task 5: Trusted decision registry and claim binding
 

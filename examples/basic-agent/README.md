@@ -31,12 +31,14 @@ Read [index.mjs](index.mjs) from top to bottom. The protocol objects are intenti
 
 ## Adapt it to an agent framework
 
-1. Replace the synthetic source with records created when your retrieval or file tool reads content.
-2. Replace the synthetic decision event with your reviewed decision registry.
-3. Ask the agent to emit structured claims, evidence references, and response sections alongside its prose.
-4. Validate the structured output before adding it to the session.
-5. Call the verifier after the complete response exists.
-6. Return only the response from the release guard.
+1. Replace the synthetic source with records created by `collectSource` when your retrieval or file tool reads content.
+2. Create each evidence anchor from the exact byte range used, not from decoded character offsets.
+3. Pass the trusted project root and policy-matching allowed roots to both `verifyTrustedEnvelope` and `releaseVerifiedResponse`.
+4. Replace the synthetic decision event with your reviewed decision registry.
+5. Ask the agent to emit structured claims, evidence references, and response sections alongside its prose.
+6. Validate the structured output before adding it to the session.
+7. Call the verifier after the complete response exists.
+8. Return only the response from the release guard.
 
 Do not stream the raw model draft to the user. Buffer it until verification finishes.
 

@@ -30,6 +30,12 @@ Mitigation:
 
 There is no universal trusted collector in the alpha release.
 
+## Filesystem races and platform limits
+
+Trusted verification recollects local source files and compares normalized path, byte size, and SHA-256. The collector opens the resolved final path with `O_NOFOLLOW` where available and checks file identity and timestamps before and after the read.
+
+Portable Node.js APIs do not provide descriptor-relative traversal for every parent directory. A local attacker who can rewrite source-tree directories during collection may still race path resolution and opening. Keep approved source trees non-writable by untrusted users and processes during verification. Platforms that do not expose `O_NOFOLLOW` have weaker final-component symlink-race protection. Agent Integrity does not defend against a malicious kernel, compromised filesystem, or attacker with equivalent access to the verifier process.
+
 ## Semantic ambiguity
 
 The deterministic engine validates structure, lifecycle state, declared roles, and digests. It does not use an LLM to decide whether a passage genuinely supports a claim. Agent-generated mappings can be semantically weak even when structurally valid.

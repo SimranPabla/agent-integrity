@@ -40,7 +40,7 @@ The JSON protocol is the compatibility boundary. Other languages do not need to 
 
 - canonicalizes supported JSON values;
 - calculates SHA-256 digests;
-- validates allowed source roots and exact source bytes;
+- structurally validates envelopes and, through `verifyTrustedEnvelope`, recollects allowed source files and validates exact bytes;
 - rebuilds active, rejected, and superseded decision state;
 - checks complete, ordered UTF-8 byte coverage, section digests, and claim coverage for every section;
 - checks supporting, contradictory, and contextual evidence roles;
@@ -53,7 +53,7 @@ The core does not call a model or assign semantic truth scores. If a conclusion 
 
 ### SDK
 
-`packages/sdk` provides agent-facing helpers. `AgentIntegritySession` constructs a complete envelope incrementally while the agent runs. `releaseVerifiedResponse` verifies that the supplied envelope still matches the checked result and returns response bytes only for an unchanged `PASS`.
+`packages/sdk` provides agent-facing helpers. `AgentIntegritySession` constructs a complete envelope incrementally while the agent runs. `releaseVerifiedResponse` requires a trusted project root and allowed roots, recollects every source, verifies that the supplied envelope still matches the checked result, and returns response bytes only for an unchanged `PASS`.
 
 The SDK reduces integration mistakes, but it is not the trust boundary. The core verifier remains authoritative.
 
@@ -102,7 +102,9 @@ The application host is responsible for ensuring users only receive `release.res
 
 All bound structures are converted to canonical JSON before hashing. Object key order does not affect the digest; array order does. Unsupported JSON values, duplicate YAML keys, YAML aliases, unsafe tags, invalid paths, and malformed structures are rejected.
 
-Sources are hashed from exact bytes. A source must resolve inside an allowed root. Absolute paths, traversal, and symlink escapes are rejected.
+Sources are hashed from exact bytes. Trusted verification requires the host's project root and an allowed-root list that exactly matches policy. It resolves and opens each source, compares normalized path, size, and SHA-256, and checks each evidence anchor against the actual source bytes. Absolute paths, traversal, and symlink escapes are rejected.
+
+The collector uses `O_NOFOLLOW` for the final path when the platform exposes it and compares file identity and timestamps before and after reading. Portable Node.js APIs cannot make traversal through every parent directory descriptor-relative, so the source tree must not be writable by an attacker during collection. Platforms without `O_NOFOLLOW` provide weaker race resistance; see [Limitations](LIMITATIONS.md#filesystem-races-and-platform-limits).
 
 ## Failure behavior
 

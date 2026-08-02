@@ -62,6 +62,8 @@ For every source, capture:
 
 Do not put secrets or unnecessary source content into receipts. The CLI avoids echoing content, but the envelope itself contains the response and may contain sensitive material.
 
+Each evidence item used by trusted verification must contain `anchor.byteStart`, `anchor.byteEnd`, and the SHA-256 of that exact byte range. Offsets refer to raw file bytes, not JavaScript character positions. The host must supply `projectRoot` and `allowedRoots`; trusted verification rejects a root list that differs from policy.
+
 ## 3. Record decision lifecycle events
 
 Decisions are append-only events with revisions. A decision can be active, rejected, or superseded. A superseding event must explicitly identify its replacement.
@@ -92,7 +94,7 @@ Do not use contextual evidence as supporting evidence. When support is semantica
 
 ```js
 import { readFile } from "node:fs/promises";
-import { parsePolicy, verifyEnvelope } from "@agent-integrity/core";
+import { parsePolicy, verifyTrustedEnvelope } from "@agent-integrity/core";
 import {
   AgentIntegritySession,
   releaseVerifiedResponse,
@@ -109,9 +111,10 @@ session.addEvidence(evidenceItem);
 session.addClaim(claim);
 session.setResponse(draft, sections);
 
+const context = { projectRoot: process.cwd(), allowedRoots: policy.sources.allowedRoots };
 const envelope = session.buildEnvelope();
-const verification = verifyEnvelope(envelope);
-const release = releaseVerifiedResponse({ envelope, verification });
+const verification = await verifyTrustedEnvelope(envelope, context);
+const release = await releaseVerifiedResponse({ envelope, verification, context });
 
 switch (release.status) {
   case "PASS":
@@ -149,6 +152,17 @@ Build the repository, then call:
 node packages/cli/dist/cli.js verify < verify-request.json > verify-result.json
 status=$?
 ```
+
+`verify-request.json` must contain both `envelope` and a trusted context:
+
+```json
+{
+  "envelope": { "protocolVersion": "1-alpha" },
+  "context": { "projectRoot": "/absolute/project/path", "allowedRoots": ["docs"] }
+}
+```
+
+The abbreviated envelope above is illustrative; use the complete protocol shape. The CLI resolves source paths relative to `projectRoot`, recollects every file, and fails closed if the context is absent or differs from policy.
 
 Handle every exit code explicitly:
 

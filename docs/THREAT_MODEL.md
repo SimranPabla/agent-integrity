@@ -64,7 +64,7 @@ An agent may reuse a rejected decision or an older decision superseded by a repl
 
 ### Source mutation
 
-Approved source bytes may change between collection and verification or recheck. Exact-byte SHA-256 binding detects the change.
+Approved source bytes may change between collection and verification or recheck. Trusted verification recollects every declared file and compares its normalized path, size, SHA-256, and evidence-anchor digests. Release and CLI recheck use this live path.
 
 ### Response mutation
 
@@ -81,6 +81,8 @@ An attacker may replace a receipt at the same path. Receipt writers use create-n
 ### Path-boundary escape
 
 A source path may attempt traversal, absolute access, or symlink escape outside approved roots. Source resolution rejects these cases.
+
+There is a remaining local race on parent path components because portable Node.js does not provide descriptor-relative traversal. Approved source trees are assumed not to be writable by an attacker during collection. The final component uses `O_NOFOLLOW` where supported and the collector checks file identity before and after reading.
 
 ### Malformed-input downgrade
 

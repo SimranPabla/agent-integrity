@@ -70,6 +70,8 @@ Copy an example directory and change one field at a time:
 
 Run `npm test` after modifications. Keep fixtures synthetic and never paste confidential sources or production responses into the repository.
 
+CLI verification examples include a `context` object and local synthetic files under each example's `docs/` directory. Run the commands from the repository root so their relative `projectRoot` values resolve correctly. Trusted verification recollects those files and validates every evidence byte anchor before calculating the outcome.
+
 ## Building your own example
 
 Start with `basic-agent` for an in-process TypeScript host. Start with a CLI request when integrating another language. Your example should document:

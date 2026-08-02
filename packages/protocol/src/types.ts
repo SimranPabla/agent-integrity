@@ -96,6 +96,17 @@ export interface ResponseSection {
 export interface EvidenceItem {
   readonly evidenceId: string;
   readonly sourceId: string;
+  /** Exact byte range in the referenced source. Required by trusted verification. */
+  readonly anchor?: EvidenceAnchor;
+}
+
+export interface EvidenceAnchor {
+  /** Inclusive byte offset into the source file. */
+  readonly byteStart: number;
+  /** Exclusive byte offset into the source file. */
+  readonly byteEnd: number;
+  /** SHA-256 of the exact source bytes in [byteStart, byteEnd). */
+  readonly sha256: string;
 }
 
 export interface ClaimEvidence {

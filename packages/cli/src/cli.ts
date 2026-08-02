@@ -2,9 +2,9 @@
 import { stdin, stdout } from "node:process";
 import {
   parsePolicy,
-  recheckReceipt,
+  recheckTrustedReceipt,
   sha256Canonical,
-  verifyEnvelope,
+  verifyTrustedEnvelope,
 } from "@agent-integrity/core";
 import type {
   AlphaIntegrityReceipt,
@@ -69,7 +69,8 @@ async function main(): Promise<never> {
 
   if (command === "verify") {
     if (!("envelope" in request)) return invalidInput("envelope is required");
-    const result = verifyEnvelope(request.envelope as IntegrityEnvelope);
+    if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
+    const result = await verifyTrustedEnvelope(request.envelope as IntegrityEnvelope, request.context as never);
     return emit(result, exitCode(result.status));
   }
 
@@ -79,10 +80,12 @@ async function main(): Promise<never> {
     }
     const now = new Date(request.now);
     if (!Number.isFinite(now.getTime())) return invalidInput("now must be a valid ISO timestamp");
-    const result = recheckReceipt({
+    if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
+    const result = await recheckTrustedReceipt({
       receipt: request.receipt as AlphaIntegrityReceipt,
       envelope: request.envelope as IntegrityEnvelope,
       now,
+      context: request.context as never,
     });
     return emit(result, exitCode(result.status));
   }

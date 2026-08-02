@@ -1,17 +1,29 @@
 import { execFile } from "node:child_process";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createReceipt, verifyEnvelope } from "@agent-integrity/core";
+import { createReceipt, verifyTrustedEnvelope } from "@agent-integrity/core";
 import type { AlphaIntegrityReceipt, IntegrityEnvelope } from "@agent-integrity/protocol";
 import { validEnvelope } from "../../core/tests/support/valid-envelope.js";
 
 const execFileAsync = promisify(execFile);
 const root = new URL("../../..", import.meta.url).pathname;
 const cli = join(root, "packages/cli/dist/cli.js");
+const digest = (value: string): string => createHash("sha256").update(value).digest("hex");
+
+async function trustedFixture(envelope = validEnvelope()) {
+  const projectRoot = await mkdtemp(join(tmpdir(), "integrity-cli-source-"));
+  await mkdir(join(projectRoot, "docs"));
+  const content = "0123456789";
+  await writeFile(join(projectRoot, "docs", "source.md"), content);
+  (envelope as any).sources = [{ sourceId: "source-1", path: "docs/source.md", size: 10, sha256: digest(content) }];
+  (envelope as any).evidence = [{ evidenceId: "evidence-1", sourceId: "source-1", anchor: { byteStart: 0, byteEnd: 4, sha256: digest("0123") } }];
+  return { envelope, context: { projectRoot, allowedRoots: ["docs"] } };
+}
 
 async function run(command: string, input: unknown): Promise<{ code: number; output: any; stderr: string }> {
   return runRaw(command, JSON.stringify(input));
@@ -47,30 +59,33 @@ describe("integrity CLI", () => {
   });
 
   it("verifies an envelope and returns only integrity metadata", async () => {
-    const envelope = validEnvelope();
+    const { envelope, context } = await trustedFixture();
     envelope.response.content = "PRIVATE SOURCE-LIKE RESPONSE";
     envelope.response.sections = [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 28, sha256: "cd1545015ecb32d3597ba7f161f36cd11f3365bf30c55b9400aa037e3cdc0472" }];
-    const result = await run("verify", { envelope });
+    const result = await run("verify", { envelope, context });
     expect(result.code).toBe(0);
     expect(result.output).toMatchObject({ status: "PASS", protocolVersion: "1-alpha", findings: [] });
     expect(JSON.stringify(result.output)).not.toContain("PRIVATE SOURCE-LIKE RESPONSE");
   });
 
   it("uses stable REVIEW and BLOCKED exit codes", async () => {
-    const reviewEnvelope = validEnvelope();
+    const review = await trustedFixture();
+    const reviewEnvelope = review.envelope;
     reviewEnvelope.claims[0]!.evidence[0] = {
       ...reviewEnvelope.claims[0]!.evidence[0]!, support: "ambiguous",
     };
-    const blockedEnvelope = validEnvelope();
+    const blocked = await trustedFixture();
+    const blockedEnvelope = blocked.envelope;
     blockedEnvelope.claims = [];
-    expect((await run("verify", { envelope: reviewEnvelope })).code).toBe(2);
-    expect((await run("verify", { envelope: blockedEnvelope })).code).toBe(3);
+    expect((await run("verify", { envelope: reviewEnvelope, context: review.context })).code).toBe(2);
+    expect((await run("verify", { envelope: blockedEnvelope, context: blocked.context })).code).toBe(3);
   });
 
   it("rechecks and inspects a receipt without exposing the envelope", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-cli-"));
-    const envelope = validEnvelope();
-    const verification = verifyEnvelope(envelope);
+    const trusted = await trustedFixture();
+    const { envelope, context } = trusted;
+    const verification = await verifyTrustedEnvelope(envelope, context);
     const receiptPath = join(directory, "receipt.json");
     const receipt = await createReceipt({
       runId: "cli-test", path: receiptPath, envelope, verification,
@@ -78,7 +93,7 @@ describe("integrity CLI", () => {
       expiresAt: new Date("2026-08-03T00:00:00.000Z"),
     });
     const recheck = await run("recheck", {
-      receipt, envelope, now: "2026-08-02T01:00:00.000Z",
+      receipt, envelope, context, now: "2026-08-02T01:00:00.000Z",
     });
     expect(recheck).toMatchObject({ code: 0, output: { status: "PASS" }, stderr: "" });
 

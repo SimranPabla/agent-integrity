@@ -8,6 +8,7 @@ import {
 import { sha256Canonical } from "../hash.js";
 import { calculateOutcome, checkerFailure } from "../outcome.js";
 import { verifyEnvelope } from "../verify.js";
+import { verifyTrustedEnvelope, type TrustedVerificationContext } from "../verify-trusted.js";
 
 export interface RecheckReceiptOptions {
   readonly receipt: AlphaIntegrityReceipt;
@@ -71,6 +72,30 @@ function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
 export function recheckReceipt(options: RecheckReceiptOptions): ReceiptRecheckResult {
   try {
     return recheckUnsafe(options);
+  } catch (error) {
+    return checkerFailure(error);
+  }
+}
+
+export interface RecheckTrustedReceiptOptions extends RecheckReceiptOptions {
+  readonly context: TrustedVerificationContext;
+}
+
+/** Rechecks the receipt against freshly recollected source bytes. */
+export async function recheckTrustedReceipt(options: RecheckTrustedReceiptOptions): Promise<ReceiptRecheckResult> {
+  try {
+    const baseline = recheckUnsafe(options);
+    const live = await verifyTrustedEnvelope(options.envelope, options.context);
+    const findings = [...baseline.findings];
+    if (live.status !== "PASS") findings.push(...live.findings);
+    if (live.envelopeDigest === undefined) {
+      findings.push(blocked("receipt.live_source_check_failed", "Trusted source verification did not produce an envelope digest"));
+    }
+    return {
+      ...calculateOutcome(findings),
+      ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }),
+      ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }),
+    };
   } catch (error) {
     return checkerFailure(error);
   }

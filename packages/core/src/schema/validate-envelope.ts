@@ -119,9 +119,24 @@ export function assertIntegrityEnvelope(value: unknown): asserts value is Integr
 
   list(envelope.evidence, "evidence").forEach((entry, index) => {
     const evidence = record(entry, `evidence[${index}]`);
-    exact(evidence, ["evidenceId", "sourceId"], `evidence[${index}]`);
+    exact(evidence, ["evidenceId", "sourceId", ...(evidence.anchor === undefined ? [] : ["anchor"])], `evidence[${index}]`);
     string(evidence.evidenceId, `evidence[${index}].evidenceId`);
     string(evidence.sourceId, `evidence[${index}].sourceId`);
+    if (evidence.anchor !== undefined) {
+      const anchor = record(evidence.anchor, `evidence[${index}].anchor`);
+      exact(anchor, ["byteStart", "byteEnd", "sha256"], `evidence[${index}].anchor`);
+      for (const key of ["byteStart", "byteEnd"] as const) {
+        if (!Number.isSafeInteger(anchor[key]) || (anchor[key] as number) < 0) {
+          throw new Error(`evidence[${index}].anchor.${key} must be a non-negative safe integer`);
+        }
+      }
+      if ((anchor.byteEnd as number) <= (anchor.byteStart as number)) {
+        throw new Error(`evidence[${index}].anchor must contain at least one byte`);
+      }
+      if (!SHA256.test(string(anchor.sha256, `evidence[${index}].anchor.sha256`))) {
+        throw new Error(`evidence[${index}].anchor.sha256 is invalid`);
+      }
+    }
   });
 
   list(envelope.claims, "claims").forEach((entry, index) => {

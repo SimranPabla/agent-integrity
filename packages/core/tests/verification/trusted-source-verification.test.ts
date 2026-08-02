@@ -1,0 +1,116 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { verifyTrustedEnvelope } from "../../src/verify-trusted.js";
+import { validEnvelope } from "../support/valid-envelope.js";
+
+const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+
+async function fixture() {
+  const projectRoot = await mkdtemp(join(tmpdir(), "agent-integrity-trusted-"));
+  await mkdir(join(projectRoot, "docs"));
+  const bytes = Buffer.from("trusted source bytes\n", "utf8");
+  await writeFile(join(projectRoot, "docs", "source.md"), bytes);
+  const base = validEnvelope();
+  return {
+    projectRoot,
+    bytes,
+    envelope: {
+      ...base,
+      sources: [{ sourceId: "source-1", path: "docs/source.md", size: bytes.length, sha256: sha256(bytes) }],
+      evidence: [{
+        evidenceId: "evidence-1",
+        sourceId: "source-1",
+        anchor: { byteStart: 0, byteEnd: 7, sha256: sha256(bytes.subarray(0, 7)) },
+      }],
+    },
+  };
+}
+
+describe("verifyTrustedEnvelope", () => {
+  it("blocks a fabricated source record", async () => {
+    const test = await fixture();
+    const envelope = {
+      ...test.envelope,
+      sources: [{ ...test.envelope.sources[0]!, sha256: "0".repeat(64) }],
+    };
+    const result = await verifyTrustedEnvelope(envelope, {
+      projectRoot: test.projectRoot,
+      allowedRoots: ["docs"],
+    });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.some((finding) => finding.code === "source.digest_mismatch")).toBe(true);
+  });
+
+  it("blocks source mutation after an earlier trusted verification", async () => {
+    const test = await fixture();
+    const context = { projectRoot: test.projectRoot, allowedRoots: ["docs"] };
+    expect((await verifyTrustedEnvelope(test.envelope, context)).status).toBe("PASS");
+    await writeFile(join(test.projectRoot, "docs", "source.md"), "changed source bytes\n");
+    const result = await verifyTrustedEnvelope(test.envelope, context);
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.some((finding) => finding.code === "source.digest_mismatch")).toBe(true);
+  });
+
+  it("compares the normalized live path and byte size", async () => {
+    const test = await fixture();
+    const wrongSize = {
+      ...test.envelope,
+      sources: [{ ...test.envelope.sources[0]!, size: test.bytes.length + 1 }],
+    };
+    const sizeResult = await verifyTrustedEnvelope(wrongSize, {
+      projectRoot: test.projectRoot,
+      allowedRoots: ["docs"],
+    });
+    expect(sizeResult.findings.some((finding) => finding.code === "source.size_mismatch")).toBe(true);
+
+    const nonNormalized = {
+      ...test.envelope,
+      sources: [{ ...test.envelope.sources[0]!, path: "docs/./source.md" }],
+    };
+    const pathResult = await verifyTrustedEnvelope(nonNormalized, {
+      projectRoot: test.projectRoot,
+      allowedRoots: ["docs"],
+    });
+    expect(pathResult.findings.some((finding) => finding.code === "source.path_mismatch")).toBe(true);
+  });
+
+  it("requires trusted roots to match the policy roots", async () => {
+    const test = await fixture();
+    const result = await verifyTrustedEnvelope(test.envelope, {
+      projectRoot: test.projectRoot,
+      allowedRoots: ["other"],
+    });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.some((finding) => finding.code === "source.context_invalid")).toBe(true);
+  });
+
+  it("checks evidence anchors against the recollected source bytes", async () => {
+    const test = await fixture();
+    const envelope = {
+      ...test.envelope,
+      evidence: [{ ...test.envelope.evidence[0]!, anchor: { byteStart: 0, byteEnd: 7, sha256: "0".repeat(64) } }],
+    };
+    const result = await verifyTrustedEnvelope(envelope, {
+      projectRoot: test.projectRoot,
+      allowedRoots: ["docs"],
+    });
+    expect(result.status).toBe("BLOCKED");
+    expect(result.findings.some((finding) => finding.code === "evidence.anchor_digest_mismatch")).toBe(true);
+  });
+
+  it("rejects missing and out-of-range anchors", async () => {
+    const test = await fixture();
+    const missing = { ...test.envelope, evidence: [{ evidenceId: "evidence-1", sourceId: "source-1" }] };
+    expect((await verifyTrustedEnvelope(missing, { projectRoot: test.projectRoot, allowedRoots: ["docs"] })).status)
+      .toBe("BLOCKED");
+    const outside = {
+      ...test.envelope,
+      evidence: [{ ...test.envelope.evidence[0]!, anchor: { byteStart: 0, byteEnd: 999, sha256: "0".repeat(64) } }],
+    };
+    expect((await verifyTrustedEnvelope(outside, { projectRoot: test.projectRoot, allowedRoots: ["docs"] })).status)
+      .toBe("BLOCKED");
+  });
+});

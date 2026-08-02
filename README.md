@@ -114,7 +114,7 @@ An integration normally performs five steps:
 
 ```js
 import { createHash } from "node:crypto";
-import { verifyEnvelope } from "@agent-integrity/core";
+import { collectSource, verifyTrustedEnvelope } from "@agent-integrity/core";
 import {
   AgentIntegritySession,
   releaseVerifiedResponse,
@@ -138,9 +138,12 @@ session.setResponse(
   }],
 );
 
+const context = { projectRoot: process.cwd(), allowedRoots: parsedPolicy.sources.allowedRoots };
+// sourceRecord must come from collectSource(context + sourcePath), and each
+// evidence item must include an exact byte anchor into that collected file.
 const envelope = session.buildEnvelope();
-const verification = verifyEnvelope(envelope);
-const release = releaseVerifiedResponse({ envelope, verification });
+const verification = await verifyTrustedEnvelope(envelope, context);
+const release = await releaseVerifiedResponse({ envelope, verification, context });
 
 if (release.status === "PASS") {
   process.stdout.write(release.response);
@@ -163,8 +166,8 @@ node packages/cli/dist/cli.js <command> < request.json
 Commands:
 
 - `validate-policy`: parse and validate the strict YAML policy.
-- `verify`: validate a complete envelope and calculate its outcome.
-- `recheck`: compare a receipt with the live bound content and replay state.
+- `verify`: validate an envelope and recollect every source using the required trusted `context`.
+- `recheck`: compare a receipt with the envelope and freshly recollected source bytes.
 - `inspect-receipt`: validate and summarize a receipt without exposing response content.
 
 Stable exit codes:

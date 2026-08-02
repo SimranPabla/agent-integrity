@@ -1,4 +1,7 @@
-import { verifyEnvelope } from "../../packages/core/dist/index.js";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { collectSource, verifyTrustedEnvelope } from "../../packages/core/dist/index.js";
 import { AgentIntegritySession, releaseVerifiedResponse } from "../../packages/sdk/dist/index.js";
 
 const policy = {
@@ -14,6 +17,12 @@ const policy = {
   },
 };
 
+const projectRoot = fileURLToPath(new URL(".", import.meta.url));
+const context = { projectRoot, allowedRoots: policy.sources.allowedRoots };
+const collected = await collectSource({ ...context, sourcePath: "docs/maintenance.md" });
+const sourceBytes = await readFile(new URL("docs/maintenance.md", import.meta.url));
+const anchorBytes = sourceBytes.subarray(0, 43);
+
 const session = new AgentIntegritySession(policy)
   .setResponse("The maintenance window begins at 09:00 UTC.", [
     { sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 43, sha256: "540beff0286b1ba21c45be4113a48f85ca13cb1b6b4b1f9ef9de06bf08238f6a" },
@@ -21,10 +30,14 @@ const session = new AgentIntegritySession(policy)
   .addSource({
     sourceId: "maintenance-policy",
     path: "docs/maintenance.md",
-    sha256: "a".repeat(64),
-    size: 42,
+    sha256: collected.sha256,
+    size: collected.size,
   })
-  .addEvidence({ evidenceId: "maintenance-window", sourceId: "maintenance-policy" })
+  .addEvidence({
+    evidenceId: "maintenance-window",
+    sourceId: "maintenance-policy",
+    anchor: { byteStart: 0, byteEnd: anchorBytes.length, sha256: createHash("sha256").update(anchorBytes).digest("hex") },
+  })
   .addClaim({
     claimId: "window-start",
     sectionId: "answer",
@@ -33,7 +46,7 @@ const session = new AgentIntegritySession(policy)
   });
 
 const envelope = session.buildEnvelope();
-const verification = verifyEnvelope(envelope);
-const release = releaseVerifiedResponse({ envelope, verification });
+const verification = await verifyTrustedEnvelope(envelope, context);
+const release = await releaseVerifiedResponse({ envelope, verification, context });
 console.log(JSON.stringify(release, null, 2));
 if (release.status !== "PASS") process.exitCode = 1;
