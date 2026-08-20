@@ -7,11 +7,11 @@
   "author": "Simranjit Singh",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<YOUR-GITHUB-ORG>/agent-integrity.git"
+    "url": "git+https://github.com/SimranPabla/agent-integrity.git"
   },
-  "homepage": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity#readme",
+  "homepage": "https://github.com/SimranPabla/agent-integrity#readme",
   "bugs": {
-    "url": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity/issues"
+    "url": "https://github.com/SimranPabla/agent-integrity/issues"
   },
   "keywords": [
     "ai-agents",

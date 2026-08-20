@@ -12,6 +12,8 @@ All notable changes will be documented here. The project follows Semantic Versio
 - Added serialized create-once local issuance with crash recovery and exactly-once local receipt consumption through one protected monotonic store.
 - Added runnable examples, protocol schema, compatibility/migration guidance, and release checks.
 - Added a tag-only npm trusted-publishing workflow that remains fail-closed while publication placeholders or external npm/GitHub configuration are unresolved.
+- Moved CLI roots, key trust, clock, and receipt-store authority out of untrusted stdin into host-controlled configuration.
+- Added SHA-pinned release actions and integrity-checked, resumable multi-package publication.
 - Upgraded package checks to pack real tarballs, reject incremental build state, install all packages in an isolated temporary project, import public exports, and execute the installed CLI.
 - Marked the workspace root private to prevent accidental monorepo-root publication.
 

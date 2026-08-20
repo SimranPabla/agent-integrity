@@ -160,20 +160,19 @@ A useful application invariant is: **the network response body comes only from `
 Build the repository, then call:
 
 ```bash
-node packages/cli/dist/cli.js verify --trusted-policy /absolute/project/integrity/policy.yaml < verify-request.json > verify-result.json
+node packages/cli/dist/cli.js verify --trusted-policy /absolute/project/integrity/policy.yaml --trusted-config /etc/agent-integrity/trusted-config.json < verify-request.json > verify-result.json
 status=$?
 ```
 
-`verify-request.json` must contain both `envelope` and a trusted context:
+`verify-request.json` contains only the untrusted envelope:
 
 ```json
 {
-  "envelope": { "protocolVersion": "1-alpha" },
-  "context": { "projectRoot": "/absolute/project/path", "allowedRoots": ["docs"] }
+  "envelope": { "protocolVersion": "1-alpha" }
 }
 ```
 
-The abbreviated envelope above is illustrative; use the complete protocol shape. The CLI loads and normalizes the separately trusted policy file, ignores any stdin policy as a trust root, resolves source paths relative to `projectRoot`, recollects every file, and fails closed if the envelope policy or context differs from the trusted policy.
+The host-controlled config contains `projectRoot`, `allowedRoots`, and `decisionRegistryPath`. Recheck additionally requires `receiptStoreDirectory` and `trust` with public keys, issuer, audience, purpose, engine version, revoked key IDs, and optional timing bounds. The CLI ignores trust values in stdin, uses the host clock, recollects every file, and fails closed on disagreement.
 
 Handle every exit code explicitly:
 
@@ -196,7 +195,9 @@ import subprocess
 
 request = json.load(open("verify-request.json", encoding="utf-8"))
 completed = subprocess.run(
-    ["node", "packages/cli/dist/cli.js", "verify"],
+    ["node", "packages/cli/dist/cli.js", "verify",
+     "--trusted-policy", "/absolute/project/integrity/policy.yaml",
+     "--trusted-config", "/etc/agent-integrity/trusted-config.json"],
     input=json.dumps(request),
     text=True,
     capture_output=True,

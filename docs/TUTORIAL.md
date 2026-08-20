@@ -5,13 +5,13 @@ This tutorial runs the complete local flow without an external model. The fake a
 ## 1. Install and verify
 
 ```bash
-git clone https://github.com/<YOUR-GITHUB-ORG>/agent-integrity.git
+git clone https://github.com/SimranPabla/agent-integrity.git
 cd agent-integrity
 npm ci
 npm run verify
 ```
 
-The repository is private during review, so replace the owner placeholder only when the public URL is approved.
+The repository may remain private until the maintainer explicitly approves publication. The URL above is the final public location.
 
 ## 2. Inspect the trusted inputs
 
@@ -57,9 +57,9 @@ Expected result contains:
 ## 4. Exercise review and blocking
 
 ```bash
-node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml < examples/contradictory-evidence/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml --trusted-config examples/contradictory-evidence/integrity/trusted-config.json < examples/contradictory-evidence/request.json
 echo $?
-node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml < examples/superseded-decision/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml --trusted-config examples/superseded-decision/integrity/trusted-config.json < examples/superseded-decision/request.json
 echo $?
 node examples/tampered-response/index.mjs
 ```

@@ -102,6 +102,6 @@
 
 - [x] Run typecheck, tests, build, examples, dependency audit, secret/provenance/license scans, and clean-install package tests.
 - [x] Update the offline runbook with new keys, registry, commands, recovery, and rollback.
-- [ ] Request a fresh independent read-only code and documentation adversarial review.
-- [ ] Fix confirmed findings and repeat until no release blocker remains.
-- [ ] Keep GitHub private until explicit publication approval.
+- [x] Request a fresh independent read-only code and documentation adversarial review.
+- [x] Fix confirmed findings and repeat until no release blocker remains.
+- [x] Keep GitHub private until explicit publication approval.

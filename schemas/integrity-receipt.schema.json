@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity/schemas/integrity-receipt.schema.json",
+  "$id": "https://github.com/SimranPabla/agent-integrity/schemas/integrity-receipt.schema.json",
   "title": "Agent Integrity Receipt 2-alpha",
   "type": "object",
   "additionalProperties": false,

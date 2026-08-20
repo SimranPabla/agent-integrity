@@ -19,7 +19,7 @@ Requirements:
 - Git
 
 ```bash
-git clone https://github.com/<YOUR-GITHUB-ORG>/agent-integrity.git
+git clone https://github.com/SimranPabla/agent-integrity.git
 cd agent-integrity
 npm ci
 npm run verify

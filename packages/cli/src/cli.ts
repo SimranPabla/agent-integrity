@@ -17,6 +17,7 @@ import type {
 type JsonRecord = Record<string, unknown>;
 const MAX_STDIN_BYTES = 1024 * 1024;
 const MAX_POLICY_BYTES = 1024 * 1024;
+const MAX_TRUST_CONFIG_BYTES = 1024 * 1024;
 const MAX_PATH_BYTES = 4096;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -58,17 +59,19 @@ async function readRequest(): Promise<JsonRecord> {
   return value;
 }
 
-function trustedPolicyPath(): string {
+function optionPath(name: string): string {
   const args = process.argv.slice(3);
-  if (args.length !== 2 || args[0] !== "--trusted-policy" || typeof args[1] !== "string" ||
-      args[1].length === 0 || Buffer.byteLength(args[1], "utf8") > MAX_PATH_BYTES) {
-    return invalidInput("--trusted-policy <path> is required");
+  const index = args.indexOf(name);
+  const value = index < 0 ? undefined : args[index + 1];
+  if (typeof value !== "string" || value.length === 0 || value.startsWith("--") ||
+      Buffer.byteLength(value, "utf8") > MAX_PATH_BYTES || args.filter((item) => item === name).length !== 1) {
+    return invalidInput(`${name} <path> is required exactly once`);
   }
-  return args[1];
+  return value;
 }
 
 async function readTrustedPolicy(): Promise<ReturnType<typeof parsePolicy>> {
-  const path = trustedPolicyPath();
+  const path = optionPath("--trusted-policy");
   const handle = await open(path, "r");
   try {
     const info = await handle.stat();
@@ -79,6 +82,25 @@ async function readTrustedPolicy(): Promise<ReturnType<typeof parsePolicy>> {
     return parsePolicy(buffer.subarray(0, bytesRead).toString("utf8"));
   } catch (error) {
     return invalidInput(error instanceof Error ? error.message : "trusted policy could not be loaded");
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readTrustedConfig(): Promise<JsonRecord> {
+  const path = optionPath("--trusted-config");
+  const handle = await open(path, "r");
+  try {
+    const info = await handle.stat();
+    if (info.size > MAX_TRUST_CONFIG_BYTES) return invalidInput(`trusted config exceeds ${MAX_TRUST_CONFIG_BYTES} bytes`);
+    const buffer = Buffer.alloc(MAX_TRUST_CONFIG_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > MAX_TRUST_CONFIG_BYTES) return invalidInput(`trusted config exceeds ${MAX_TRUST_CONFIG_BYTES} bytes`);
+    const value: unknown = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
+    if (!isRecord(value)) return invalidInput("trusted config must contain one JSON object");
+    return value;
+  } catch (error) {
+    return invalidInput(error instanceof Error ? error.message : "trusted config could not be loaded");
   } finally {
     await handle.close();
   }
@@ -107,29 +129,25 @@ async function main(): Promise<never> {
 
   if (command === "verify") {
     if (!("envelope" in request)) return invalidInput("envelope is required");
-    if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
     const trustedPolicy = await readTrustedPolicy();
-    const result = await verifyTrustedEnvelope(request.envelope as IntegrityEnvelope, { ...request.context, trustedPolicy } as never);
+    const trustedConfig = await readTrustedConfig();
+    const result = await verifyTrustedEnvelope(request.envelope as IntegrityEnvelope, { ...trustedConfig, trustedPolicy } as never);
     return emit(result, exitCode(result.status));
   }
 
   if (command === "recheck") {
-    if (!("receipt" in request) || !("envelope" in request) || typeof request.now !== "string") {
-      return invalidInput("receipt, envelope, and ISO now are required");
-    }
-    const now = new Date(request.now);
-    if (!Number.isFinite(now.getTime())) return invalidInput("now must be a valid ISO timestamp");
-    if (!isRecord(request.context)) return invalidInput("context with projectRoot and allowedRoots is required");
-    if (!isRecord(request.trust)) return invalidInput("trust with keys and receipt expectations is required");
-    if (typeof request.receiptStoreDirectory !== "string" || request.receiptStoreDirectory.length === 0 || Buffer.byteLength(request.receiptStoreDirectory, "utf8") > MAX_PATH_BYTES) return invalidInput("receiptStoreDirectory is required and must not exceed 4096 bytes");
+    if (!("receipt" in request) || !("envelope" in request)) return invalidInput("receipt and envelope are required");
     const trustedPolicy = await readTrustedPolicy();
+    const trustedConfig = await readTrustedConfig();
+    if (!isRecord(trustedConfig.trust)) return invalidInput("trusted config must include trust settings");
+    if (typeof trustedConfig.receiptStoreDirectory !== "string" || trustedConfig.receiptStoreDirectory.length === 0 || Buffer.byteLength(trustedConfig.receiptStoreDirectory, "utf8") > MAX_PATH_BYTES) return invalidInput("trusted config must include a bounded receiptStoreDirectory");
     const result = await recheckTrustedReceipt({
       receipt: request.receipt as AlphaIntegrityReceipt,
       envelope: request.envelope as IntegrityEnvelope,
-      now,
-      context: { ...request.context, trustedPolicy } as never,
-      trust: { ...request.trust, trustedPolicy } as never,
-      receiptStore: new FileReceiptStore(request.receiptStoreDirectory),
+      now: new Date(),
+      context: { ...trustedConfig, trustedPolicy } as never,
+      trust: { ...trustedConfig.trust, trustedPolicy } as never,
+      receiptStore: new FileReceiptStore(trustedConfig.receiptStoreDirectory),
     });
     return emit(result, exitCode(result.status));
   }

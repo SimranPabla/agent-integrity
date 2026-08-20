@@ -35,11 +35,14 @@ describe("release metadata", () => {
     expect(workflow).not.toMatch(/pull_request:|branches:/u);
     expect(workflow).toContain("contents: read");
     expect(workflow).toContain("id-token: write");
+    expect(workflow).toContain("environment: npm-release");
+    expect(workflow).toContain("actions/checkout@11d5960a326750d5838078e36cf38b85af677262");
+    expect(workflow).toContain("actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020");
     expect(workflow).toContain("npm run verify");
     expect(workflow).toContain("npm run release:check");
     expect(workflow).toContain("npm run pack:check");
     expect(workflow).toContain("npm audit --audit-level=high");
-    const publishes = ["protocol", "core", "sdk", "cli"].map((name) => workflow.indexOf(`npm publish ./packages/${name} --access public --provenance --tag alpha`));
+    const publishes = ["protocol", "core", "sdk", "cli"].map((name) => workflow.indexOf(`node scripts/publish-package.mjs packages/${name}`));
     expect(publishes.every((position) => position >= 0)).toBe(true);
     expect(publishes).toEqual([...publishes].sort((left, right) => left - right));
     expect(workflow.indexOf("npm run release:check")).toBeLessThan(publishes[0]!);

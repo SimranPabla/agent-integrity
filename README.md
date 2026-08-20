@@ -46,13 +46,11 @@ The engine is provider-independent by design. No named model provider or agent f
 
 The npm packages are not published yet. Use the source installation below during alpha review.
 
-> Publication placeholder: replace `<YOUR-GITHUB-ORG>` with the final GitHub owner when the repository becomes public.
-
 1. Install Node.js 22+ and Git.
 2. Clone the repository:
 
    ```bash
-   git clone https://github.com/<YOUR-GITHUB-ORG>/agent-integrity.git
+   git clone https://github.com/SimranPabla/agent-integrity.git
    cd agent-integrity
    ```
 
@@ -86,8 +84,8 @@ The npm packages are not published yet. Use the source installation below during
 7. Run the negative examples:
 
    ```bash
-   node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml < examples/contradictory-evidence/request.json
-   node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml < examples/superseded-decision/request.json
+   node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml --trusted-config examples/contradictory-evidence/integrity/trusted-config.json < examples/contradictory-evidence/request.json
+   node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml --trusted-config examples/superseded-decision/integrity/trusted-config.json < examples/superseded-decision/request.json
    node examples/tampered-response/index.mjs
    ```
 
@@ -167,7 +165,7 @@ The snippet above is an architectural outline, not copy-paste code. Follow the c
 The CLI uses one JSON request on stdin and one JSON result on stdout. It does not echo source or response content.
 
 ```bash
-node packages/cli/dist/cli.js <command> --trusted-policy integrity/policy.yaml < request.json
+node packages/cli/dist/cli.js <command> --trusted-policy integrity/policy.yaml --trusted-config /etc/agent-integrity/trusted-config.json < request.json
 ```
 
 Commands:
@@ -177,7 +175,7 @@ Commands:
 - `recheck`: load a separately trusted policy file, authenticate a receipt, and recollect source bytes.
 - `inspect-receipt`: summarize fields and compare the public self-digest; it does not authenticate the producer.
 
-`verify` and `recheck` require `--trusted-policy <path>`. A policy embedded in stdin is never treated as the trust root. CLI stdin and trusted policy files are each limited to 1 MiB.
+`verify` and `recheck` require `--trusted-policy <path>` and `--trusted-config <path>`. The config—not stdin—controls project roots, keys, receipt expectations, and receipt-store location. Recheck uses the host system clock. Each input is limited to 1 MiB.
 
 Current alpha exit codes:
 
@@ -219,6 +217,7 @@ See [CLI usage in the Integration Guide](docs/INTEGRATION_GUIDE.md#using-the-cli
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 - [Governance](GOVERNANCE.md)
+- [Public release runbook](docs/RELEASE.md)
 
 ## Development
 
