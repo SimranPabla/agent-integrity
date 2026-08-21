@@ -49,6 +49,12 @@ describe("release metadata", () => {
     expect(workflow.indexOf("npm audit --audit-level=high")).toBeLessThan(publishes[0]!);
   });
 
+  test("npm publication always removes its temporary pack directory", async () => {
+    const script = await readFile(new URL("../../scripts/publish-package.mjs", import.meta.url), "utf8");
+    expect(script).toContain("} finally {");
+    expect(script).toContain("rmSync(destination, { recursive: true, force: true });");
+  });
+
   test("threat model limits exactly-once replay protection to one monotonic local store", async () => {
     const threatModel = await readFile(new URL("../../docs/THREAT_MODEL.md", import.meta.url), "utf8");
     expect(threatModel).toContain("only when every consumer uses the same protected, shared, monotonic local filesystem store");

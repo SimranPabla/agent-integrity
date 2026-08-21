@@ -46,8 +46,13 @@ export function provenanceFrom(attestations, manifest, cryptographicallyVerified
     const repository = invocation?.repository?.replace(/^https:\/\/github\.com\//u, "").replace(/\.git$/u, "");
     const workflowFile = typeof invocation?.path === "string" ? invocation.path.split("/").at(-1) : undefined;
     const ref = invocation?.ref;
-    if (repository === `${manifest.owner}/${manifest.repository}` && ref === `refs/tags/${manifest.tag}` && workflowFile === manifest.workflowFile) {
-      return { verified: cryptographicallyVerified, repository, commit: manifest.commit, workflowFile, ref };
+    const source = statement?.predicate?.buildDefinition?.resolvedDependencies?.find((dependency) => {
+      const uri = dependency?.uri?.replace(/^git\+https:\/\/github\.com\//u, "").replace(/\.git$/u, "");
+      return uri === `${manifest.owner}/${manifest.repository}`;
+    });
+    const commit = source?.digest?.gitCommit;
+    if (repository === `${manifest.owner}/${manifest.repository}` && ref === `refs/tags/${manifest.tag}` && workflowFile === manifest.workflowFile && commit === manifest.commit) {
+      return { verified: cryptographicallyVerified, repository, commit, workflowFile, ref };
     }
   }
   return undefined;

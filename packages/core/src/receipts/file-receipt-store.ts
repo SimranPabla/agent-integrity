@@ -35,6 +35,10 @@ const DEFAULT_MAX_STATE_BYTES = 64 * 1024;
 const DEFAULT_MAX_DIRECTORY_BYTES = 4096;
 const DEFAULT_MAX_RECORDS = 10_000;
 
+export function isUnsupportedDirectoryOpenError(error: unknown): boolean {
+  return ["EPERM", "EACCES", "EISDIR"].includes((error as NodeJS.ErrnoException)?.code ?? "");
+}
+
 function markerName(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
@@ -74,7 +78,9 @@ export class FileReceiptStore {
   }
 
   private async syncDirectory(path: string): Promise<void> {
-    const handle = await open(path, "r");
+    let handle;
+    try { handle = await open(path, "r"); }
+    catch (error) { if (isUnsupportedDirectoryOpenError(error)) return; throw error; }
     try { await handle.sync(); }
     catch (error) { if (!["EINVAL", "ENOTSUP", "EISDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error; }
     finally { await handle.close(); }

@@ -4,10 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createReceipt, FileReceiptStore, recheckTrustedReceipt, verifyTrustedEnvelope } from "../../src/index.js";
+import { isUnsupportedDirectoryOpenError } from "../../src/receipts/file-receipt-store.js";
 import { trustedEnvelopeFixture } from "../support/trusted-envelope.js";
 import { receiptSigner, receiptSigningOptions, receiptTrust } from "../support/receipt-keys.js";
 
 describe("signed alpha receipts", () => {
+  it("classifies only known unsupported directory-open errors", () => {
+    for (const code of ["EPERM", "EACCES", "EISDIR"]) expect(isUnsupportedDirectoryOpenError({ code })).toBe(true);
+    for (const code of ["ENOENT", "EMFILE", "EIO", undefined]) expect(isUnsupportedDirectoryOpenError({ code })).toBe(false);
+  });
   it("persists a producer-authenticated content-bound receipt without overwriting", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-receipt-"));
     const path = join(directory, "run-1.json");
