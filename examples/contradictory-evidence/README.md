@@ -6,7 +6,7 @@ This CLI example contains contradictory evidence in the submitted envelope but d
 
 ```bash
 npm run build
-node packages/cli/dist/cli.js verify < examples/contradictory-evidence/request.json
+node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml --trusted-config examples/contradictory-evidence/integrity/trusted-config.json < examples/contradictory-evidence/request.json
 echo $?
 ```
 

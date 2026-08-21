@@ -4,6 +4,7 @@ import type {
   EnvelopeVerificationResult,
   IntegrityEnvelope,
   IntegrityFinding,
+  IntegrityPolicy,
 } from "@agent-integrity/protocol";
 import { calculateOutcome, checkerFailure } from "./outcome.js";
 import { sha256Canonical } from "./hash.js";
@@ -16,6 +17,8 @@ export interface TrustedVerificationContext {
   readonly allowedRoots: readonly string[];
   /** Trusted relative path to the append-only YAML decision registry. */
   readonly decisionRegistryPath: string;
+  /** Normalized policy loaded independently by the trusted host. */
+  readonly trustedPolicy: IntegrityPolicy;
   /** Maximum bytes read from one source. Defaults to 16 MiB. */
   readonly maxSourceBytes?: number;
   /** Maximum bytes retained across all sources. Defaults to 64 MiB. */
@@ -35,6 +38,12 @@ function normalizedRoot(root: string): string {
 }
 
 function assertTrustedContext(envelope: IntegrityEnvelope, context: TrustedVerificationContext): void {
+  if (context.trustedPolicy === undefined) {
+    throw new Error("a separately loaded trusted policy is required");
+  }
+  if (sha256Canonical(context.trustedPolicy) !== sha256Canonical(envelope.policy)) {
+    throw new Error("embedded envelope policy does not match the separately trusted policy");
+  }
   if (typeof context?.projectRoot !== "string" || context.projectRoot.trim() === "") {
     throw new Error("trusted projectRoot must be a non-empty path");
   }
@@ -70,10 +79,13 @@ async function verifyTrustedUnsafe(
   try {
     assertTrustedContext(envelope, context);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "trusted source context is invalid";
     return {
       ...calculateOutcome([...structural.findings, blocked(
-        "trusted.context_invalid",
-        error instanceof Error ? error.message : "trusted source context is invalid",
+        message.includes("embedded envelope policy") || message.includes("trusted policy is required")
+          ? "trusted.policy_mismatch"
+          : "trusted.context_invalid",
+        message,
         "trustedContext",
       )]),
       envelopeDigest: structural.envelopeDigest,

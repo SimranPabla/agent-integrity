@@ -96,12 +96,12 @@
 - [x] Expand negative examples with finding codes and safe remediation.
 - [x] Add package metadata and verify every `npm pack --dry-run` payload.
 - [x] Add a pre-release placeholder/private-path scanner.
-- [ ] Run docs/examples/package checks and commit.
+- [x] Run docs/examples/package checks and commit.
 
 ### Task 9: Final audit
 
-- [ ] Run typecheck, tests, build, examples, dependency audit, secret/provenance/license scans, and clean-install package tests.
-- [ ] Update the offline runbook with new keys, registry, commands, recovery, and rollback.
-- [ ] Request a fresh independent read-only code and documentation adversarial review.
-- [ ] Fix confirmed findings and repeat until no release blocker remains.
-- [ ] Keep GitHub private until explicit publication approval.
+- [x] Run typecheck, tests, build, examples, dependency audit, secret/provenance/license scans, and clean-install package tests.
+- [x] Update the offline runbook with new keys, registry, commands, recovery, and rollback.
+- [x] Request a fresh independent read-only code and documentation adversarial review.
+- [x] Fix confirmed findings and repeat until no release blocker remains.
+- [x] Keep GitHub private until explicit publication approval.

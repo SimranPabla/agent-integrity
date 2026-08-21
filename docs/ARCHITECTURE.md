@@ -22,6 +22,8 @@ It is not an action-control framework, a truth oracle, or an autonomous fact che
 
 `packages/protocol` defines the structures exchanged between agents, collectors, the verifier, and receipt stores. It also parses the one-time project policy using a restricted YAML subset.
 
+The published envelope schema mirrors runtime structural rules where JSON Schema can express them, including role-dependent evidence metadata. The runtime response limit is measured in UTF-8 bytes; JSON Schema string lengths count Unicode characters, so the schema documents but does not attempt to encode that byte limit.
+
 The protocol contains:
 
 - source records with exact content digests;
@@ -41,6 +43,7 @@ The JSON protocol is the compatibility boundary. Other languages do not need to 
 - canonicalizes supported JSON values;
 - calculates SHA-256 digests;
 - structurally validates envelopes and, through `verifyTrustedEnvelope`, recollects allowed source files and validates exact bytes;
+- compares the envelope policy to a normalized policy loaded independently by the trusted host;
 - loads the current configured decision registry from the trusted project root, binds its exact YAML digest, requires the envelope snapshot to match, and rebuilds active, rejected, and superseded state for declared references;
 - checks complete, ordered UTF-8 byte coverage, section digests, and claim coverage for every section;
 - checks supporting, contradictory, and contextual evidence roles;

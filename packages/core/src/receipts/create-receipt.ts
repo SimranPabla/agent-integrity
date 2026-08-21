@@ -1,4 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { sign } from "node:crypto";
 import { dirname, join } from "node:path";
 import {
@@ -87,10 +86,13 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
       findings: liveVerification.findings,
     },
   };
-  const signature = {
+  const protectedSignature = {
     algorithm: "Ed25519" as const,
     keyId: options.signer.keyId,
-    value: sign(null, Buffer.from(canonicalJson(body), "utf8"), options.signer.privateKey).toString("base64"),
+  };
+  const signature = {
+    ...protectedSignature,
+    value: sign(null, Buffer.from(canonicalJson({ protected: protectedSignature, body }), "utf8"), options.signer.privateKey).toString("base64"),
   };
   const signed = { ...body, signature };
   const receipt: AlphaIntegrityReceipt = { ...signed, receiptDigest: sha256Canonical(signed) };
@@ -99,15 +101,10 @@ export async function createReceipt(options: CreateReceiptOptions): Promise<Alph
   const store = options.receiptStore ?? new FileReceiptStore(registryDirectory);
   await store.issue(receipt);
 
-  await mkdir(dirname(options.path), { recursive: true });
   try {
-    await writeFile(options.path, `${canonicalJson(receipt)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    await store.completeReceiptFile(receipt.receiptDigest, options.path);
   } catch (error) {
-    await store.rollbackIssue(receipt.receiptDigest);
-    if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new Error(`receipt already exists: ${options.path}`);
-    }
-    throw error;
+    throw new Error(`receipt was issued but output completion failed; recover it with completeReceiptFile: ${error instanceof Error ? error.message : "unknown failure"}`);
   }
   return receipt;
 }

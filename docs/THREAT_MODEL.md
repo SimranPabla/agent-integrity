@@ -76,7 +76,9 @@ The model, formatter, application, or attacker may change the response after ver
 
 ### Receipt replay
 
-An old receipt may be presented for a new response. Trusted recheck rejects changed or expired input and atomically consumes an authentic receipt in the configured local filesystem store. Concurrent or later reuse is blocked. This assumes every consumer uses the same protected store and that an older registry backup is never restored over newer state.
+An old receipt may be presented for a new response. Trusted recheck rejects changed or expired input and consumes an authentic receipt exactly once only when every consumer uses the same protected, shared, monotonic local filesystem store. Concurrent or later reuse is blocked inside that store. Restoring older store state can reopen replay, and the local store does not provide distributed or multi-host replay protection.
+
+An agent may also weaken the policy embedded in its envelope. Trusted verification rejects this by comparing the embedded policy with a normalized policy loaded independently by the host. If the host itself loads policy from attacker-controlled input, that trust boundary is already lost.
 
 ### Receipt overwrite
 
@@ -135,7 +137,7 @@ Agent Integrity does not establish:
 4. Every response byte and section is covered.
 5. Source paths remain inside approved roots.
 6. Declared references to rejected and superseded decisions cannot pass as active within the current trusted snapshot.
-7. Receipt creation refuses an existing path or run-ID marker in its configured local store; this is not durable replay prevention.
+7. Receipt creation refuses an existing path or run-ID marker; repeated consumption is prevented only through one protected, shared, monotonic local store used by every consumer, and store rollback or distributed consumers can reopen replay.
 8. Trusted receipt creation and recheck recollect declared source bytes; a successful recheck consumes the receipt exactly once in its configured local store.
 9. Draft content is not streamed before verification.
 10. A `PASS` is never described as proof of truth.

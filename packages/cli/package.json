@@ -4,12 +4,12 @@
   "description": "JSON stdin/stdout CLI for Agent Integrity.",
   "license": "Apache-2.0",
   "author": "Simranjit Singh",
-  "repository": { "type": "git", "url": "git+https://github.com/<YOUR-GITHUB-ORG>/agent-integrity.git", "directory": "packages/cli" },
-  "homepage": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity#readme",
-  "bugs": { "url": "https://github.com/<YOUR-GITHUB-ORG>/agent-integrity/issues" },
+  "repository": { "type": "git", "url": "git+https://github.com/SimranPabla/agent-integrity.git", "directory": "packages/cli" },
+  "homepage": "https://github.com/SimranPabla/agent-integrity#readme",
+  "bugs": { "url": "https://github.com/SimranPabla/agent-integrity/issues" },
   "keywords": ["ai-agents", "integrity", "verification", "cli"],
   "type": "module",
-  "files": ["dist", "README.md"],
+  "files": ["dist", "README.md", "!dist/.tsbuildinfo"],
   "bin": {
     "integrity": "./dist/cli.js"
   },

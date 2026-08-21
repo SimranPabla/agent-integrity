@@ -124,7 +124,9 @@ A `2-alpha` receipt binds:
 
 Receipt creation requires trusted verification and recollects every declared source before signing and writing. Recheck verifies the Ed25519 signature against an explicit trusted-key set, rejects revoked/unknown keys, checks issuer/audience/purpose/engine/policy/time bindings, and recollects source bytes.
 
-Receipt `2-alpha` authenticates its configured producer and can be consumed exactly once through `FileReceiptStore`. Issuance reserves the run ID, nonce, and receipt digest in one atomically replaced local registry. A successful trusted recheck or SDK receipt release consumes it; concurrent or later reuse returns `BLOCKED`. This guarantee assumes one protected store on one host filesystem. Key custody, rotation, backup monotonicity, and trust-root distribution remain host responsibilities.
+Receipt `2-alpha` authenticates its configured producer and can be consumed exactly once through `FileReceiptStore`. Every store operation acquires the same create-once owner-token lock; locks are never removed based on age. A crash may leave the store locked until an offline operator supplies the exact recorded owner token. Authoritative records are written to private staging files, fsynced, published without replacement by hard link, and followed by directory fsync where supported. Transaction intent is committed before quota. Consumption publishes one digest-specific record, so exactly one consumer succeeds while all participants use this store.
+
+The issued record stores the complete receipt as the authoritative recovery copy. Output failure retains committed issuance; `completeReceiptFile` finishes it later. Interrupted destructive cleanup is represented by a durable journal and resumed with `reconcileCleanup`. Pre-commit recovery must acquire the same store lock, requires the exact transaction ID, and cannot race a live issuer. These are local-filesystem controls, not distributed transactions; power-loss guarantees remain platform-dependent. Consumed tombstones continue counting toward quota because deletion would weaken replay protection.
 
 ## Strict YAML policy
 

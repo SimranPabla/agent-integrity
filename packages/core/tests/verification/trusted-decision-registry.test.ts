@@ -22,7 +22,7 @@ async function withRegistry(events: readonly object[]) {
 describe("trusted decision registry", () => {
   it("requires registry configuration from the trusted context", async () => {
     const test = await withRegistry([]);
-    const context = { projectRoot: test.context.projectRoot, allowedRoots: ["docs"] } as never;
+    const context = { projectRoot: test.context.projectRoot, allowedRoots: ["docs"], trustedPolicy: test.envelope.policy } as never;
     const result = await verifyTrustedEnvelope(test.envelope, context);
     expect(result.findings.some((finding) => finding.code === "trusted.context_invalid")).toBe(true);
   });

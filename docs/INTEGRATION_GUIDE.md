@@ -121,6 +121,7 @@ const context = {
   projectRoot: process.cwd(),
   allowedRoots: policy.sources.allowedRoots,
   decisionRegistryPath: policy.decisions.path,
+  trustedPolicy: policy,
 };
 const envelope = session.buildEnvelope();
 const verification = await verifyTrustedEnvelope(envelope, context);
@@ -159,20 +160,19 @@ A useful application invariant is: **the network response body comes only from `
 Build the repository, then call:
 
 ```bash
-node packages/cli/dist/cli.js verify < verify-request.json > verify-result.json
+node packages/cli/dist/cli.js verify --trusted-policy /absolute/project/integrity/policy.yaml --trusted-config /etc/agent-integrity/trusted-config.json < verify-request.json > verify-result.json
 status=$?
 ```
 
-`verify-request.json` must contain both `envelope` and a trusted context:
+`verify-request.json` contains only the untrusted envelope:
 
 ```json
 {
-  "envelope": { "protocolVersion": "1-alpha" },
-  "context": { "projectRoot": "/absolute/project/path", "allowedRoots": ["docs"] }
+  "envelope": { "protocolVersion": "1-alpha" }
 }
 ```
 
-The abbreviated envelope above is illustrative; use the complete protocol shape. The CLI resolves source paths relative to `projectRoot`, recollects every file, and fails closed if the context is absent or differs from policy.
+The host-controlled config contains `projectRoot`, `allowedRoots`, and `decisionRegistryPath`. Recheck additionally requires `receiptStoreDirectory` and `trust` with public keys, issuer, audience, purpose, engine version, revoked key IDs, and optional timing bounds. The CLI ignores trust values in stdin, uses the host clock, recollects every file, and fails closed on disagreement.
 
 Handle every exit code explicitly:
 
@@ -195,7 +195,9 @@ import subprocess
 
 request = json.load(open("verify-request.json", encoding="utf-8"))
 completed = subprocess.run(
-    ["node", "packages/cli/dist/cli.js", "verify"],
+    ["node", "packages/cli/dist/cli.js", "verify",
+     "--trusted-policy", "/absolute/project/integrity/policy.yaml",
+     "--trusted-config", "/etc/agent-integrity/trusted-config.json"],
     input=json.dumps(request),
     text=True,
     capture_output=True,
@@ -230,7 +232,7 @@ Signed alpha receipts require an Ed25519 private key at issuance, an explicit tr
 
 For `REVIEW`, show the human the findings, response, evidence mapping, and contradictions. The reviewer may approve outside the engine, request better evidence, or ask the agent to produce a new run. Do not mutate the verified envelope in place.
 
-For `BLOCKED`, fix the specific rule violation and create a fresh run identifier, nonce, and receipt. Do not overwrite or roll back the registry. The local store is atomic for concurrent processes using the same filesystem, but it is not a distributed database and backups must not restore older consumption state.
+For `BLOCKED`, fix the specific violation and create a fresh run identifier and nonce. Do not overwrite consumed state. Every operation uses the same owner-token store lock, which is never stolen based on age. If a crash leaves it behind, stop all users and recover it only with the exact token. Output failure retains committed issuance; finish it with `completeReceiptFile`. It is not a distributed database, and backups must not restore older consumption state.
 
 For checker errors, preserve only safe diagnostic metadata, fail closed, and investigate. Source or response contents should not be placed in general application logs.
 
@@ -246,7 +248,7 @@ For checker errors, preserve only safe diagnostic metadata, fail closed, and inv
 - [ ] Contradictions are surfaced according to policy.
 - [ ] Draft response bytes never reach users before verification.
 - [ ] `REVIEW`, `BLOCKED`, and errors release nothing.
-- [ ] Receipt files and run-ID markers are stored in host-protected storage; repeated use is not assumed to be prevented.
+- [ ] Every receipt consumer uses one protected, shared, monotonic local `FileReceiptStore`; exactly one successful consumption is enforced only inside that store, and restoring an older backup can reopen replay.
 - [ ] Sensitive envelope data is excluded from logs.
 - [ ] The application is tested against tampering, changed-envelope reuse, expiry, and repeated-use behavior.
 - [ ] Teams understand that `PASS` does not prove truth or evidence completeness.

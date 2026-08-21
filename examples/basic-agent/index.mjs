@@ -18,7 +18,7 @@ const policy = {
 };
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
-const context = { projectRoot, allowedRoots: policy.sources.allowedRoots, decisionRegistryPath: policy.decisions.path };
+const context = { projectRoot, allowedRoots: policy.sources.allowedRoots, decisionRegistryPath: policy.decisions.path, trustedPolicy: policy };
 const collected = await collectSource({ ...context, sourcePath: "docs/maintenance.md" });
 const sourceBytes = await readFile(new URL("docs/maintenance.md", import.meta.url));
 const anchorBytes = sourceBytes.subarray(0, 43);

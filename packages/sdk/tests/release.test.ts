@@ -9,23 +9,24 @@ import { releaseVerifiedResponse } from "../src/release.js";
 
 const digest = (value: string): string => createHash("sha256").update(value).digest("hex");
 
-async function fixture(): Promise<{ envelope: IntegrityEnvelope; context: { projectRoot: string; allowedRoots: string[]; decisionRegistryPath: string } }> {
+async function fixture(): Promise<{ envelope: IntegrityEnvelope; context: { projectRoot: string; allowedRoots: string[]; decisionRegistryPath: string; trustedPolicy: IntegrityEnvelope["policy"] } }> {
   const projectRoot = await mkdtemp(join(tmpdir(), "agent-integrity-release-"));
   await mkdir(join(projectRoot, "docs"));
   await mkdir(join(projectRoot, "integrity"));
   await writeFile(join(projectRoot, "docs", "source.md"), "source text");
   const registry = "version: 1\nevents: []\n";
   await writeFile(join(projectRoot, "integrity", "decisions.yaml"), registry);
+  const policy: IntegrityEnvelope["policy"] = {
+    version: 1,
+    sources: { allowedRoots: ["docs"] },
+    decisions: { path: "integrity/decisions.yaml" },
+    rules: { requireEvidenceFor: ["factual", "recommendation"], contradictions: "review", rejectedDecisions: "block", responseMutation: "block", replay: "block" },
+  };
   return {
-    context: { projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml" },
+    context: { projectRoot, allowedRoots: ["docs"], decisionRegistryPath: "integrity/decisions.yaml", trustedPolicy: policy },
     envelope: {
       protocolVersion: PROTOCOL_VERSION,
-      policy: {
-        version: 1,
-        sources: { allowedRoots: ["docs"] },
-        decisions: { path: "integrity/decisions.yaml" },
-        rules: { requireEvidenceFor: ["factual", "recommendation"], contradictions: "review", rejectedDecisions: "block", responseMutation: "block", replay: "block" },
-      },
+      policy,
       response: { content: "Supported response", sections: [{ sectionId: "answer", substantive: true, byteStart: 0, byteEnd: 18, sha256: "a31069ff26ded3cd55c0d40ebaa3430097950a210b8caaece07b27dedbb92766" }] },
       sources: [{ sourceId: "source-1", path: "docs/source.md", sha256: digest("source text"), size: 11 }],
       decisionRegistryDigest: digest(registry),
