@@ -30,7 +30,8 @@
     "test": "vitest run",
     "verify": "npm run typecheck && npm test && npm run build",
     "release:check": "node scripts/pre-release-check.mjs",
-    "pack:check": "node scripts/check-packages.mjs"
+    "pack:check": "node scripts/check-packages.mjs",
+    "release:status": "node scripts/release-status.mjs"
   },
   "engines": {
     "node": ">=22"

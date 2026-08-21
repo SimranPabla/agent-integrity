@@ -16,5 +16,7 @@ All notable changes will be documented here. The project follows Semantic Versio
 - Added SHA-pinned release actions and integrity-checked, resumable multi-package publication.
 - Upgraded package checks to pack real tarballs, reject incremental build state, install all packages in an isolated temporary project, import public exports, and execute the installed CLI.
 - Marked the workspace root private to prevent accidental monorepo-root publication.
+- Added exact-head pull-request CI and protected-main ancestry validation before npm publication.
+- Added a fail-closed public release-status verifier for GitHub workflow approval, npm provenance, versions, and downloaded tarball integrity.
 
 No npm package or public repository release exists yet.

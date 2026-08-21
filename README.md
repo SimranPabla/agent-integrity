@@ -218,6 +218,7 @@ See [CLI usage in the Integration Guide](docs/INTEGRATION_GUIDE.md#using-the-cli
 - [Changelog](CHANGELOG.md)
 - [Governance](GOVERNANCE.md)
 - [Public release runbook](docs/RELEASE.md)
+- [Release-status manifest template](docs/release-status-manifest.example.json)
 
 ## Development
 
