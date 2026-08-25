@@ -1,6 +1,6 @@
 {
   "name": "@agent-integrity/sdk",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Agent session builder and exact-response release guard for Agent Integrity.",
   "license": "Apache-2.0",
   "author": "Simranjit Singh",
@@ -13,8 +13,8 @@
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@agent-integrity/core": "0.1.0-alpha.1",
-    "@agent-integrity/protocol": "0.1.0-alpha.1"
+    "@agent-integrity/core": "0.1.0-alpha.2",
+    "@agent-integrity/protocol": "0.1.0-alpha.2"
   },
   "engines": { "node": ">=22" },
   "publishConfig": { "access": "public", "provenance": true }

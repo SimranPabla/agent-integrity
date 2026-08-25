@@ -1,6 +1,6 @@
 # Compatibility
 
-## Tested in 0.1.0-alpha.1
+## Tested in 0.1.0-alpha.2
 
 - Node.js 22 on Linux
 - npm workspaces and npm 10+
@@ -26,6 +26,6 @@ Any language or agent host can integrate experimentally if it can construct prot
 
 | Package release | Protocol | Receipt | Node.js | Status |
 | --- | --- | --- | --- | --- |
-| 0.1.0-alpha.1 | 1-alpha | 2-alpha | 22+ | Current private alpha |
+| 0.1.0-alpha.2 | 1-alpha | 2-alpha | 22+ | Current private alpha |
 
 All workspace packages must use the same release version. Mixed versions are unsupported during alpha.

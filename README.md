@@ -28,7 +28,7 @@ Decision assurance is limited to the current trusted YAML snapshot. The verifier
 
 ## Status and version
 
-Current version: `0.1.0-alpha.1` using protocol `1-alpha`.
+Current version: `0.1.0-alpha.2` using protocol `1-alpha`.
 
 This is alpha software. Protocols and APIs may change before `1.0.0`. Receipt `2-alpha` uses Ed25519 producer authentication and a local filesystem registry for atomic single-use consumption. The registry must remain on one host filesystem and be protected from untrusted modification. See [Security](SECURITY.md), [Protocol](docs/PROTOCOL.md), and [Limitations](docs/LIMITATIONS.md).
 
@@ -40,7 +40,7 @@ This is alpha software. Protocols and APIs may change before `1.0.0`. Receipt `2
 - TypeScript 5.8 or newer when embedding the SDK in a TypeScript project
 - A server-side Node.js runtime; browsers, edge runtimes, Deno, and Bun are not yet supported or tested
 
-The engine is provider-independent by design. No named model provider or agent framework is bundled or tested in `0.1.0-alpha.1`. Any host that can construct the documented JSON envelope or call the TypeScript SDK may integrate experimentally. See the tested [compatibility matrix](docs/COMPATIBILITY.md).
+The engine is provider-independent by design. No named model provider or agent framework is bundled or tested in `0.1.0-alpha.2`. Any host that can construct the documented JSON envelope or call the TypeScript SDK may integrate experimentally. See the tested [compatibility matrix](docs/COMPATIBILITY.md).
 
 ## Install from source
 

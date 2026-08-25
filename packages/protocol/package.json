@@ -1,6 +1,6 @@
 {
   "name": "@agent-integrity/protocol",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Versioned TypeScript protocol types for Agent Integrity.",
   "license": "Apache-2.0",
   "author": "Simranjit Singh",
