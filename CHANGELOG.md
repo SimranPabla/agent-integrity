@@ -2,7 +2,7 @@
 
 All notable changes will be documented here. The project follows Semantic Versioning after 1.0; alpha releases may contain documented breaking changes.
 
-## 0.1.0-alpha.0 - Unreleased
+## 0.1.0-alpha.1 - Unreleased
 
 - Added strict runtime envelope validation and bounded canonical JSON.
 - Added complete UTF-8 response-byte coverage and claim binding.
@@ -18,5 +18,6 @@ All notable changes will be documented here. The project follows Semantic Versio
 - Marked the workspace root private to prevent accidental monorepo-root publication.
 - Added exact-head pull-request CI and protected-main ancestry validation before npm publication.
 - Added a fail-closed public release-status verifier for GitHub workflow approval, npm provenance, versions, and downloaded tarball integrity.
+- Fixed npm 11 publication by making each workspace pack target explicitly local. The `v0.1.0-alpha.0` workflow failed before publishing any package and that tag remains immutable.
 
 No npm package or public repository release exists yet.
