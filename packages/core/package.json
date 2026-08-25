@@ -1,6 +1,6 @@
 {
   "name": "@agent-integrity/core",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "Deterministic verification, trusted collection, and signed receipts for Agent Integrity.",
   "license": "Apache-2.0",
   "author": "Simranjit Singh",
@@ -13,7 +13,7 @@
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "dependencies": {
-    "@agent-integrity/protocol": "0.1.0-alpha.1",
+    "@agent-integrity/protocol": "0.1.0-alpha.2",
     "yaml": "^2.8.1"
   },
   "engines": { "node": ">=22" },

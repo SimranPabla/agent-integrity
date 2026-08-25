@@ -7,7 +7,7 @@ The repository and packages are engineered for a public alpha release, but publi
 1. Protect `main`; require pull requests, at least one maintainer review, and the `exact-head-proof` check. Disable force pushes and branch deletion.
 2. Create the `npm-release` GitHub environment and require maintainer approval.
 3. Enable GitHub private vulnerability reporting.
-4. Configure npm trusted publishing for this repository and workflow for all four scoped packages.
+4. For the first publication only, store a maintainer-owned npm credential as the protected `NPM_TOKEN` repository secret. Keep provenance enabled. After the package records exist, configure trusted publishing for this repository and workflow and remove the bootstrap secret.
 5. Confirm the `@agent-integrity` npm scope is controlled by the maintainer.
 6. Run `npm ci`, `npm run verify`, `npm run pack:check`, `npm audit --audit-level=high`, and `npm run release:check` from a clean checkout.
 7. Inspect the exact commit after protected merge. Confirm its `exact-head-proof` run passed, then create `v<package-version>` on that commit. Do not run `npm publish` manually.
@@ -40,6 +40,6 @@ Exit `0` and status `CURRENT` mean the tag, protected-main ancestry, successful 
 
 GitHub Free does not make every desired organization rule available. The minimum accepted public control is protected `main`, mandatory pull requests and exact-head CI, a separately reviewed `npm-release` environment, immutable release tags, npm trusted publishing, and this post-publication proof. If the account cannot enforce any of those controls, stop before publication.
 
-The tag workflow uses SHA-pinned actions, the protected `npm-release` environment, npm OIDC provenance, exact version/tag matching, and ordered publication. Each package step is idempotent: it skips an existing version only when the registry tarball integrity exactly matches the local tarball, allowing safe recovery after a partial multi-package publish. A mismatch fails closed.
+The tag workflow uses SHA-pinned actions, the protected `npm-release` environment, npm provenance, exact version/tag matching, and ordered publication. The initial bootstrap uses `NPM_TOKEN` only on the four publish steps because npm cannot authorize trusted publishing until each package record exists. Remove the secret after all four packages exist and trusted publishing is configured. Each package step is idempotent: it skips an existing version only when the registry tarball integrity exactly matches the local tarball, allowing safe recovery after a partial multi-package publish. A mismatch fails closed.
 
 Rollback cannot delete an npm version. Deprecate a bad version, publish a forward fix with a new version, and document it in the changelog. Never move or recreate a published tag.

@@ -35,6 +35,7 @@ describe("release metadata", () => {
     expect(workflow).not.toMatch(/pull_request:|branches:/u);
     expect(workflow).toContain("contents: read");
     expect(workflow).toContain("id-token: write");
+    expect(workflow.match(/NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/gu)).toHaveLength(4);
     expect(workflow).toContain("environment: npm-release");
     expect(workflow).toContain("actions/checkout@11d5960a326750d5838078e36cf38b85af677262");
     expect(workflow).toContain("actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020");

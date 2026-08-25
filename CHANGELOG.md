@@ -2,6 +2,10 @@
 
 All notable changes will be documented here. The project follows Semantic Versioning after 1.0; alpha releases may contain documented breaking changes.
 
+## 0.1.0-alpha.2 - Unreleased
+
+- Added a secret-backed npm bootstrap credential for the first publication while retaining npm provenance. The `v0.1.0-alpha.1` trusted-publishing attempt failed before publishing any package and that tag remains immutable.
+
 ## 0.1.0-alpha.1 - Unreleased
 
 - Added strict runtime envelope validation and bounded canonical JSON.
