@@ -51,6 +51,7 @@ describe("release metadata", () => {
 
   test("npm publication always removes its temporary pack directory", async () => {
     const script = await readFile(new URL("../../scripts/publish-package.mjs", import.meta.url), "utf8");
+    expect(script).toContain('["pack", `./${packageDirectory}`');
     expect(script).toContain("} finally {");
     expect(script).toContain("rmSync(destination, { recursive: true, force: true });");
   });

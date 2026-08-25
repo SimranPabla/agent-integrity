@@ -10,7 +10,7 @@ const manifest = JSON.parse(readFileSync(join(packageDirectory, "package.json"),
 const spec = `${manifest.name}@${manifest.version}`;
 const destination = mkdtempSync(join(tmpdir(), "agent-integrity-publish-"));
 try {
-  const filename = execFileSync("npm", ["pack", packageDirectory, "--pack-destination", destination, "--json"], { encoding: "utf8" });
+  const filename = execFileSync("npm", ["pack", `./${packageDirectory}`, "--pack-destination", destination, "--json"], { encoding: "utf8" });
   const packed = JSON.parse(filename)[0];
   if (!packed?.filename) throw new Error(`npm pack produced no archive for ${spec}`);
   const archive = join(destination, packed.filename);

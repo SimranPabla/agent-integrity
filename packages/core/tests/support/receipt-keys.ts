@@ -13,7 +13,7 @@ export const receiptTrust = {
   issuer: "test-issuer",
   audience: "test-audience",
   purpose: "response-release",
-  engineVersion: "0.1.0-alpha.0",
+  engineVersion: "0.1.0-alpha.1",
   trustedPolicy: {
     version: 1 as const,
     sources: { allowedRoots: ["docs"] },
