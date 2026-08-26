@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -29,32 +29,9 @@ describe("release metadata", () => {
     expect(archivesAfter).toBe(archivesBefore);
   }, 60_000);
 
-  test("npm publication workflow is tag-only, least-privilege, ordered, and placeholder-gated", async () => {
-    const workflow = await readFile(new URL("../../.github/workflows/npm-release.yml", import.meta.url), "utf8");
-    expect(workflow).toContain('tags:\n      - "v*"');
-    expect(workflow).not.toMatch(/pull_request:|branches:/u);
-    expect(workflow).toContain("contents: read");
-    expect(workflow).toContain("id-token: write");
-    expect(workflow.match(/NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/gu)).toHaveLength(4);
-    expect(workflow).toContain("environment: npm-release");
-    expect(workflow).toContain("actions/checkout@11d5960a326750d5838078e36cf38b85af677262");
-    expect(workflow).toContain("actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020");
-    expect(workflow).toContain("npm run verify");
-    expect(workflow).toContain("npm run release:check");
-    expect(workflow).toContain("npm run pack:check");
-    expect(workflow).toContain("npm audit --audit-level=high");
-    const publishes = ["protocol", "core", "sdk", "cli"].map((name) => workflow.indexOf(`node scripts/publish-package.mjs packages/${name}`));
-    expect(publishes.every((position) => position >= 0)).toBe(true);
-    expect(publishes).toEqual([...publishes].sort((left, right) => left - right));
-    expect(workflow.indexOf("npm run release:check")).toBeLessThan(publishes[0]!);
-    expect(workflow.indexOf("npm audit --audit-level=high")).toBeLessThan(publishes[0]!);
-  });
-
-  test("npm publication always removes its temporary pack directory", async () => {
-    const script = await readFile(new URL("../../scripts/publish-package.mjs", import.meta.url), "utf8");
-    expect(script).toContain('["pack", `./${packageDirectory}`');
-    expect(script).toContain("} finally {");
-    expect(script).toContain("rmSync(destination, { recursive: true, force: true });");
+  test("npm publication remains intentionally disabled", async () => {
+    await expect(access(new URL("../../.github/workflows/npm-release.yml", import.meta.url))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(new URL("../../scripts/publish-package.mjs", import.meta.url))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("threat model limits exactly-once replay protection to one monotonic local store", async () => {
