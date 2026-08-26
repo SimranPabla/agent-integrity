@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 
 describe("GitHub release governance", () => {
@@ -15,9 +15,7 @@ describe("GitHub release governance", () => {
     expect(workflow).toMatch(/actions\/setup-node@[0-9a-f]{40}/u);
   });
 
-  test("release proves the immutable tag is on main before publishing", async () => {
-    const workflow = await readFile(new URL("../../.github/workflows/npm-release.yml", import.meta.url), "utf8");
-    expect(workflow).toContain("fetch-depth: 0");
-    expect(workflow).toContain("git merge-base --is-ancestor \"$GITHUB_SHA\" origin/main");
+  test("no active tag-triggered npm publication workflow exists", async () => {
+    await expect(access(new URL("../../.github/workflows/npm-release.yml", import.meta.url))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
