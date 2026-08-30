@@ -6,4 +6,4 @@ Session construction and exact-response release controls for Node.js agent hosts
 import { AgentIntegritySession, releaseVerifiedResponse } from "@agent-integrity/sdk";
 ```
 
-Buffer drafts until verification finishes. Release only the `response` returned by a `PASS` release result. Do not stream model output around this boundary. See `examples/basic-agent` for runnable code.
+Buffer drafts until verification finishes. Release only the `response` returned by a `PASS` release result. Do not stream model output around this boundary. See the [basic agent example](../../examples/basic-agent/README.md) for runnable code.

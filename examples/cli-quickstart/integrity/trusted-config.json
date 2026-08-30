@@ -1,0 +1,5 @@
+{
+  "projectRoot": "examples/cli-quickstart",
+  "allowedRoots": ["docs"],
+  "decisionRegistryPath": "integrity/decisions.yaml"
+}

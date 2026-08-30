@@ -7,6 +7,7 @@
 - TypeScript 5.8
 - Direct TypeScript/JavaScript SDK use
 - JSON stdin/stdout CLI use
+- Python 3 standard-library subprocess example on Linux
 - Local files on a single host filesystem
 - Ed25519 keys supported by Node.js `crypto`
 
@@ -26,6 +27,6 @@ Any language or agent host can integrate experimentally if it can construct prot
 
 | Package release | Protocol | Receipt | Node.js | Status |
 | --- | --- | --- | --- | --- |
-| 0.1.0-alpha.2 | 1-alpha | 2-alpha | 22+ | Current private alpha |
+| 0.1.0-alpha.2 | 1-alpha | 2-alpha | 22+ | Current source-only alpha |
 
 All workspace packages must use the same release version. Mixed versions are unsupported during alpha.

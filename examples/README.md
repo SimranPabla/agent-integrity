@@ -13,6 +13,26 @@ npm run build
 
 ## Example index
 
+### CLI quick start: `PASS`
+
+The recommended first example. It shows the approved source, trusted host configuration, response, claim, and exact evidence mapping as plain files.
+
+```bash
+node packages/cli/dist/cli.js verify --trusted-policy examples/cli-quickstart/integrity/policy.yaml --trusted-config examples/cli-quickstart/integrity/trusted-config.json < examples/cli-quickstart/request.json
+```
+
+Expected: exit `0`, status `PASS`, and no findings. Read the [walkthrough](cli-quickstart/README.md).
+
+### Python host: `PASS`
+
+Shows a Python application calling the same CLI verifier and releasing the bound response only when the exit code and JSON status both say `PASS`.
+
+```bash
+python3 examples/python-cli/verify_response.py
+```
+
+Expected: the exact verified response. Read the [Python walkthrough](python-cli/README.md).
+
 ### Basic agent: `PASS`
 
 Shows an agent-first TypeScript integration. The SDK builds the envelope, the core verifies it, and the release guard returns the exact response.
@@ -74,7 +94,7 @@ CLI verification examples include a `context` object and local synthetic files u
 
 ## Building your own example
 
-Start with `basic-agent` for an in-process TypeScript host. Start with a CLI request when integrating another language. Your example should document:
+Start with `cli-quickstart` to understand the data flow. Use `python-cli` for a non-Node host and `basic-agent` for an in-process TypeScript host. Your example should document:
 
 1. the failure mode or workflow it represents;
 2. all prerequisites and commands;

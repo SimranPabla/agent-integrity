@@ -1,0 +1,55 @@
+{
+  "envelope": {
+    "protocolVersion": "1-alpha",
+    "policy": {
+      "version": 1,
+      "sources": { "allowedRoots": ["docs"] },
+      "decisions": { "path": "integrity/decisions.yaml" },
+      "rules": {
+        "requireEvidenceFor": ["factual"],
+        "contradictions": "review",
+        "rejectedDecisions": "block",
+        "responseMutation": "block",
+        "replay": "block"
+      }
+    },
+    "response": {
+      "content": "The maintenance window begins at 09:00 UTC.",
+      "sections": [{
+        "sectionId": "answer",
+        "substantive": true,
+        "byteStart": 0,
+        "byteEnd": 43,
+        "sha256": "540beff0286b1ba21c45be4113a48f85ca13cb1b6b4b1f9ef9de06bf08238f6a"
+      }]
+    },
+    "sources": [{
+      "sourceId": "maintenance-policy",
+      "path": "docs/maintenance.md",
+      "sha256": "2291e0e99b7643ec4b1c8e8960b3ee4e83a0ebcec5f1ce3dc92b9259fb96cf03",
+      "size": 44
+    }],
+    "decisionRegistryDigest": "44fbe87080e7534ae05e225047dcdc1851e5d3a1e7e45d654d7828a5dd8e0e88",
+    "decisions": [],
+    "evidence": [{
+      "evidenceId": "maintenance-window",
+      "sourceId": "maintenance-policy",
+      "anchor": {
+        "byteStart": 0,
+        "byteEnd": 43,
+        "sha256": "540beff0286b1ba21c45be4113a48f85ca13cb1b6b4b1f9ef9de06bf08238f6a"
+      }
+    }],
+    "claims": [{
+      "claimId": "window-start",
+      "sectionId": "answer",
+      "kind": "factual",
+      "decisionIds": [],
+      "evidence": [{
+        "evidenceId": "maintenance-window",
+        "role": "supporting",
+        "support": "direct"
+      }]
+    }]
+  }
+}

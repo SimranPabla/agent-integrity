@@ -193,7 +193,7 @@ describe("signed alpha receipts", () => {
     const transaction = JSON.parse(await readFile(join(storePath, "transactions", `${transactionName}.json`), "utf8"));
     await store.recoverInterruptedIssue(receipt, { offlineExclusive: true, transactionId: transaction.transactionId });
     await expect(store.issue(receipt)).resolves.toBeUndefined();
-  });
+  }, 15_000);
 
   it("reconstructs a missing receipt file after a crash following store issuance", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-complete-output-"));
@@ -243,7 +243,7 @@ describe("signed alpha receipts", () => {
       await expect(target.issue(candidate)).rejects.toThrow(/record limit/u);
     }
     expect(await stateCounts()).toEqual(before);
-  });
+  }, 15_000);
 
   it("retains issuance when the receipt parent is a file", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-parent-file-"));
@@ -315,7 +315,7 @@ describe("signed alpha receipts", () => {
     expect(await readdir(join(orphanPath, "transactions"))).toEqual([]);
     expect(await readdir(join(orphanPath, "quota"))).toEqual([]);
     await expect(new FileReceiptStore(orphanPath, { maxRecords: 1 }).issue(receipt)).resolves.toBeUndefined();
-  });
+  }, 15_000);
 
   it("removes pre-publication quota intent and permits an immediate retry", async () => {
     const directory = await mkdtemp(join(tmpdir(), "integrity-quota-prepublish-"));

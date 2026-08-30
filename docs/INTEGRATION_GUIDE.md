@@ -1,6 +1,6 @@
 # Integration Guide
 
-This guide shows how to place Agent Integrity between an agent draft and the application code that releases the response.
+This guide shows how to place Agent Integrity between an agent draft and the application code that releases the response. If you have not run the project yet, start with the [beginner tutorial](TUTORIAL.md).
 
 ## Choose an integration mode
 
@@ -12,6 +12,15 @@ Use the TypeScript SDK when your agent host runs on Node.js. Use the CLI when th
 | JSON CLI | Python, Go, Rust, shell, workflow engines | stdin/stdout | Supported |
 | Browser/edge | Client-side agents | JavaScript bundle | Not supported |
 | Hosted verifier | Multi-tenant services | Network API | Not included |
+
+Recommended path:
+
+1. Use the CLI quick start to learn the inputs.
+2. Python and other non-Node hosts should wrap the CLI and fail closed on every non-`PASS` result.
+3. Node.js hosts may use the TypeScript SDK in process.
+4. Add receipts only when a later consumer must authenticate or recheck an earlier result.
+
+The examples below assume you already understand the five files in the [CLI quick start](../examples/cli-quickstart/README.md). This guide focuses on wiring a real host safely; the [protocol reference](PROTOCOL.md) defines every field.
 
 Agent Integrity is model-independent. OpenAI, Anthropic, Google, local-model, LangChain, Mastra, and custom agents can use it when the host can supply the protocol data. There are no provider-specific adapters in the alpha release.
 
@@ -82,7 +91,7 @@ The verifier rejects:
 - references to missing replacements;
 - a declared claim reference treating a rejected or superseded decision as active.
 
-Use decisions for approved product directions, policy interpretations, editorial constraints, or any durable choice that should not be silently revived after reversal.
+Use decisions for approved product directions, policy interpretations, editorial constraints, or any durable choice that should not be silently revived after reversal. Do not add a decision dependency merely because a source exists; use it only when the claim relies on an approved choice whose lifecycle matters.
 
 ## 4. Map the response
 
@@ -164,7 +173,7 @@ node packages/cli/dist/cli.js verify --trusted-policy /absolute/project/integrit
 status=$?
 ```
 
-`verify-request.json` contains only the untrusted envelope:
+`verify-request.json` contains the complete untrusted envelope. The abbreviated object below shows its outer shape only; copy the runnable request from the [CLI quick start](../examples/cli-quickstart/request.json) rather than using this fragment:
 
 ```json
 {
