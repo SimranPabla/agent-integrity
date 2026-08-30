@@ -10,4 +10,4 @@ The trusted context must include `trustedPolicy`, parsed from host-controlled co
 import { collectSource, verifyTrustedEnvelope } from "@agent-integrity/core";
 ```
 
-Requires Node.js 22+. See the root Integration Guide for the full trusted context and key-management flow.
+Requires Node.js 22+. See the [Integration Guide](../../docs/INTEGRATION_GUIDE.md) for the full trusted context and key-management flow.

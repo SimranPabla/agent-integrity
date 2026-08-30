@@ -6,4 +6,4 @@ TypeScript types for protocol `1-alpha` and signed receipt `2-alpha`.
 import type { IntegrityEnvelope, AlphaIntegrityReceipt } from "@agent-integrity/protocol";
 ```
 
-This package defines data shapes; it does not validate unknown runtime input. Use `@agent-integrity/core` or the CLI for strict validation. See the root protocol reference and `schemas/` before implementing another language.
+This package defines data shapes; it does not validate unknown runtime input. Use `@agent-integrity/core` or the CLI for strict validation. See the [protocol reference](../../docs/PROTOCOL.md) and [JSON schemas](../../schemas/) before implementing another language.

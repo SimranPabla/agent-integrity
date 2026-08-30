@@ -1,6 +1,14 @@
 # Agent Integrity
 
-Agent Integrity is an agent-first, deterministic verification engine for developers building AI agents. It validates an exact response and application-supplied claim/evidence envelope against trusted source bytes and a trusted decision snapshot—and refuses to release changed or structurally invalid bytes.
+AI agents can produce convincing answers that cite the wrong passage, rely on an outdated decision, or change after review. Agent Integrity is an open-source release gate that lets your application check an exact response against approved source bytes, policy, and decisions **before a user receives it**.
+
+It does not call another LLM. Your agent drafts the answer and declares its claims and evidence; the deterministic verifier decides whether those exact bytes may be released.
+
+```text
+agent draft → claims + evidence → deterministic check → PASS / REVIEW / BLOCKED
+                                                        ↓
+                                              release, hold, or stop
+```
 
 The agent prepares a complete response envelope. Agent Integrity, which does not call an LLM, independently calculates one outcome:
 
@@ -9,6 +17,18 @@ The agent prepares a complete response envelope. Agent Integrity, which does not
 - `BLOCKED`: the response is held because a definite integrity violation or checker failure occurred.
 
 Agent Integrity verifies consistency and tamper resistance. It does **not** prove objective truth, complete evidence, sound reasoning, safety, or correctness. Read [Limitations](docs/LIMITATIONS.md) before using it as a release boundary.
+
+## Is this for you?
+
+- **AI and backend developers:** gate source-grounded RAG answers, reports, or recommendations before release.
+- **Python developers:** use the language-neutral JSON CLI as a subprocess; no Python SDK is required.
+- **Node.js developers:** use the TypeScript SDK for in-process envelope construction and release control.
+- **Platform and DevOps engineers:** enforce exit-code-based release behavior in a service or pipeline.
+- **Security and governance teams:** inspect the threat model, deterministic findings, and signed receipt boundaries.
+
+Agent Integrity verifies responses. It is not a tool-execution sandbox or an authorization system for consequential actions.
+
+Start here if your application produces a response that must stay tied to approved evidence or a current decision. If you only need ordinary citation display, logging, or model evaluation, this project may be more machinery than you need.
 
 ## Why use it?
 
@@ -42,9 +62,9 @@ This is alpha software. Protocols and APIs may change before `1.0.0`. Receipt `2
 
 The engine is provider-independent by design. No named model provider or agent framework is bundled or tested in `0.1.0-alpha.2`. Any host that can construct the documented JSON envelope or call the TypeScript SDK may integrate experimentally. See the tested [compatibility matrix](docs/COMPATIBILITY.md).
 
-## Install from source
+## Quick start: verify one response
 
-The npm packages are not published yet. Use the source installation below during alpha review.
+The npm packages are not published yet. Use the source installation below during alpha review. The example is synthetic, local, and requires no API key.
 
 1. Install Node.js 22+ and Git.
 2. Clone the repository:
@@ -66,30 +86,38 @@ The npm packages are not published yet. Use the source installation below during
    npm run build
    ```
 
-5. Run the complete verification suite:
+5. Verify the included CLI example:
+
+   ```bash
+   node packages/cli/dist/cli.js verify \
+     --trusted-policy examples/cli-quickstart/integrity/policy.yaml \
+     --trusted-config examples/cli-quickstart/integrity/trusted-config.json \
+     < examples/cli-quickstart/request.json
+   ```
+
+   Expected: exit code `0`, status `PASS`, and no findings.
+
+6. Run the same flow from Python:
+
+   ```bash
+   python3 examples/python-cli/verify_response.py
+   ```
+
+   Expected: the exact verified response is printed. All non-`PASS` paths release nothing.
+
+7. Run the repository checks and negative examples:
 
    ```bash
    npm run verify
    npm audit --audit-level=high
-   ```
-
-6. Run the basic agent example:
-
-   ```bash
-   node examples/basic-agent/index.mjs
-   ```
-
-   A successful run prints a `PASS` result and the exact released response.
-
-7. Run the negative examples:
-
-   ```bash
    node packages/cli/dist/cli.js verify --trusted-policy examples/contradictory-evidence/integrity/policy.yaml --trusted-config examples/contradictory-evidence/integrity/trusted-config.json < examples/contradictory-evidence/request.json
    node packages/cli/dist/cli.js verify --trusted-policy examples/superseded-decision/integrity/policy.yaml --trusted-config examples/superseded-decision/integrity/trusted-config.json < examples/superseded-decision/request.json
    node examples/tampered-response/index.mjs
    ```
 
-   The first command exits `2` (`REVIEW`). The second exits `3` (`BLOCKED`). The tampering example shows that changed response bytes are not released.
+   The contradiction exits `2` (`REVIEW`). The superseded decision exits `3` (`BLOCKED`). The tampering example shows that changed response bytes are not released.
+
+The quick-start files are explained in [examples/cli-quickstart](examples/cli-quickstart/README.md). Continue with the [beginner tutorial](docs/TUTORIAL.md), then choose the [Python CLI or TypeScript SDK integration path](docs/INTEGRATION_GUIDE.md).
 
 ## Package installation after publication
 
@@ -102,7 +130,7 @@ npm install --global @agent-integrity/cli
 
 Until then, import from the built workspace packages or use the JSON CLI from a source checkout.
 
-## SDK integration outline
+## TypeScript SDK integration outline
 
 An integration normally performs five steps:
 
@@ -203,8 +231,8 @@ See [CLI usage in the Integration Guide](docs/INTEGRATION_GUIDE.md#using-the-cli
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
-- [Integration Guide](docs/INTEGRATION_GUIDE.md)
-- [15-minute tutorial](docs/TUTORIAL.md)
+- [Beginner tutorial](docs/TUTORIAL.md)
+- [Integration Guide: CLI, Python, and TypeScript](docs/INTEGRATION_GUIDE.md)
 - [Protocol reference](docs/PROTOCOL.md)
 - [JSON Schemas](schemas/)
 - [Compatibility](docs/COMPATIBILITY.md)
