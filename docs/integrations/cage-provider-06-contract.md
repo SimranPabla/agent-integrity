@@ -12,7 +12,7 @@ CAGE owns:
 - collection and completeness attestation of approved evidence;
 - construction of the canonical Agent Integrity envelope;
 - publication of the closed evidence bundle;
-- Provider 06 process lifecycle, request authentication, and IPC client behavior;
+- Provider 06 process lifecycle, possession of the CAGE-side HMAC secret copy, construction of the required authentication headers, and IPC client behavior;
 - routing every outcome through CAGE's `ConsequenceGateway`;
 - preservation of signed receipts in CAGE's tamper-evident evidence system;
 - dispatch of only the exact response bytes returned by the sidecar.
@@ -21,6 +21,7 @@ Agent Integrity owns:
 
 - canonical envelope and receipt semantics;
 - strict request and trusted-context validation;
+- server-side HMAC verification and durable cross-key nonce replay enforcement;
 - verification against a private snapshot of the supplied evidence bytes;
 - receipt signing and receipt/replay storage;
 - result recovery and idempotent redelivery;
@@ -40,7 +41,9 @@ All CAGE-specific sidecar lifecycle, authentication, and HTTP/IPC code remains w
 
 ### 3. Out-of-band trust-anchor resolution
 
-CAGE verifies a receipt signature by resolving its `kid` through a separately provisioned, cached trust manifest. A public key embedded in a receipt is never accepted as its own trust anchor. Key validity windows and revocation state are checked at verification time.
+CAGE treats `receipt.signature.keyId` as the receipt `kid` and resolves it only through a separately provisioned, authenticated trust manifest. A public key embedded in a receipt or sidecar response is never accepted as its own trust anchor.
+
+The manifest has a monotonically increasing generation, `manifestDigest`, `issuedAt`, `validUntil`, and signature by a pinned manifest-authority key provisioned through CAGE's deployment/configuration channel rather than by the sidecar response. `manifestDigest` is SHA-256 of RFC 8785 canonical manifest bytes with both `manifestDigest` and `signature` omitted. The authority signature covers the ASCII domain separator `cage-agent-integrity-trust-manifest-v1`, followed by the validated `manifestDigest`. CAGE persists the highest accepted generation and rejects an older generation even if its signature is otherwise valid. Refresh may atomically replace the cache only after the complete new manifest, authority signature, generation, digest, validity interval, and revocation data validate. If refresh fails, CAGE may use the current cached manifest only until `validUntil`; a missing, expired, rolled-back, malformed, or unauthenticated manifest, an unknown `kid`, or a key that is revoked or outside its validity window is a fail-closed non-admitting result with no downstream bytes. This bounds how long cached revocation state may be used and makes refresh failure behavior deterministic.
 
 ### 4. Refusals as primary evidence
 
@@ -48,7 +51,9 @@ CAGE verifies a receipt signature by resolving its `kid` through a separately pr
 
 ### 5. Exact-byte release
 
-For `PASS`, CAGE may dispatch only the response bytes returned by the sidecar after receipt consumption. CAGE must not reconstruct, normalize, translate, append to, or otherwise mutate the response. Any change requires a new verification transaction.
+For `PASS`, CAGE first validates the closed service response, verifies the signed receipt with the out-of-band trust manifest, recomputes the canonical request envelope digest and requires it to equal `receipt.envelopeDigest`, and requires the wrapper, verification, and receipt statuses all to be `PASS`.
+
+CAGE then canonically base64-decodes `releasedResponse.bytes`, requires those decoded bytes to equal the exact UTF-8 bytes of the original request envelope's `response.content`, computes SHA-256 over the decoded bytes, and requires that digest to equal `releasedResponse.sha256`. CAGE dispatches that decoded sidecar-returned byte buffer itself. It must not dispatch reconstructed request bytes or normalize, translate, append to, truncate, or otherwise mutate the returned buffer. Any mismatch fails closed, and any intended change requires a new verification transaction.
 
 ## Initial transport profile
 
@@ -57,7 +62,7 @@ For `PASS`, CAGE may dispatch only the response bytes returned by the sidecar af
 - One authenticated CAGE client.
 - No public TCP listener.
 - Separate Unix identities for CAGE and Agent Integrity.
-- HMAC request authentication with durable nonce replay protection.
+- CAGE constructs HMAC request headers from its protected client-side key copy; the sidecar verifies the MAC and durably consumes nonce uniqueness across overlapping key IDs.
 - Evidence copied from a CAGE-published closed bundle into a sidecar-owned private snapshot before verification.
 
 ## Outcome contract

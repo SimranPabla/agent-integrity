@@ -1,9 +1,9 @@
 # Agent Integrity Private Sidecar Design
 
-**Status:** Proposed for cross-project review; revision 3 passed internal security review
-**Date:** 2026-09-18
+**Status:** Proposed for cross-project review; revision 4 incorporates public review findings and is pending re-review
+**Date:** 2026-09-21
 **Agent Integrity base:** `880ea482fce4a6ee8914f8922a8ab12cc0ba1a59`
-**CAGE reference base:** `fcb98bef0b5faea1afcc5a430148fe065b985ef4`
+**CAGE reference base:** `7ab1acd57ce8bf9ae7e7501254330f54ebc7028a`
 **CAGE evidence:** merged conformance PR `google/cybernetic-agent-governance-engine#205`
 
 ## 1. Decision and purpose
@@ -221,7 +221,9 @@ One incoming bundle contains:
   project/
     integrity/policy.yaml
     integrity/decisions.yaml
-    ...approved source files...
+    integrity/trusted-config.json
+    docs/
+      ...approved source files...
 ```
 
 `manifest.json` is host-created metadata containing:
@@ -231,12 +233,15 @@ One incoming bundle contains:
 - request/run identity;
 - trusted relative policy path;
 - trusted relative decision-registry path;
+- trusted relative configuration path;
 - allowed source roots;
 - evidence-completeness attestation;
 - publication timestamp;
 - optional expiry;
-- an exhaustive ordered file list containing every allowed relative path, byte size, and SHA-256 digest;
+- an exhaustive ordered file list containing every allowed regular file below `project/`, including policy, decision, trusted-configuration, and approved-source files, with each relative path, byte size, and SHA-256 digest;
 - a manifest digest calculated as SHA-256 over canonical JSON with the `manifestDigest` field omitted.
+
+`manifest.json` is not an entry in its own exhaustive file list. Its raw bytes must themselves be RFC 8785 canonical JSON and must equal byte-for-byte re-canonicalization of the parsed closed manifest. The sidecar then removes only `manifestDigest`, canonicalizes the remaining object, and verifies that SHA-256 against the declared lowercase-hex `manifestDigest`. This avoids a circular self-digest while authenticating the complete manifest bytes through one reproducible rule.
 
 The sidecar requires the HTTP request body to be canonical JSON and checks that its envelope refers only to files in the exhaustive manifest. It rejects unlisted extra files, missing files, duplicate paths, absolute paths, traversal, symlinks, non-regular files, and files with link counts other than one. It verifies every declared size and digest while copying into a new private snapshot. It checks incoming file identity and metadata before and after each copy and rechecks the incoming root identity before publication of the private snapshot.
 
@@ -305,26 +310,57 @@ Request body:
 
 The envelope remains the canonical Agent Integrity `1-alpha` envelope. Service transport fields do not enter the envelope schema.
 
-Successful HTTP response body:
+Successful HTTP responses serialize one of these closed structural types as canonical JSON:
+
+```ts
+type PassResponse = Readonly<{
+  serviceProtocolVersion: "1";
+  requestId: SafeId;
+  status: "PASS";
+  verification: IntegrityResult & { status: "PASS" };
+  receipt: AlphaIntegrityReceipt;
+  releasedResponse: Readonly<{
+    encoding: "base64";
+    sha256: LowercaseSha256;
+    bytes: CanonicalPaddedBase64;
+  }>;
+}>;
+
+type RefusalResponse = Readonly<{
+  serviceProtocolVersion: "1";
+  requestId: SafeId;
+  status: "REVIEW" | "BLOCKED";
+  verification: IntegrityResult;
+  receipt: AlphaIntegrityReceipt;
+}>;
+```
+
+The service parser and serializer use closed discriminated response types:
+
+- `PASS` contains exactly `serviceProtocolVersion`, `requestId`, `status`, `verification`, `receipt`, and `releasedResponse`;
+- `REVIEW` and `BLOCKED` contain exactly `serviceProtocolVersion`, `requestId`, `status`, `verification`, and `receipt` and must omit `releasedResponse`;
+- `verification` must validate as the closed public `IntegrityResult 1-alpha` type;
+- `receipt` must validate as the closed public `IntegrityReceipt 2-alpha` schema;
+- wrapper `status`, `verification.status`, and `receipt.verification.status` must be identical;
+- `receipt.envelopeDigest` must equal the digest independently recomputed from the exact request envelope;
+- `releasedResponse` contains exactly `encoding`, `sha256`, and `bytes`; `encoding` is `base64`, `sha256` is lowercase hexadecimal SHA-256, and `bytes` is canonical padded base64 within the configured response limit.
+
+For `REVIEW` and `BLOCKED`, the sidecar returns `verification` and a signed `receipt`, but omits `releasedResponse`.
+
+Technical failures return one of two closed shapes and no other fields:
 
 ```json
 {
   "serviceProtocolVersion": "1",
   "requestId": "safe-id",
-  "status": "PASS",
-  "verification": {},
-  "receipt": {},
-  "releasedResponse": {
-    "encoding": "base64",
-    "sha256": "64-lowercase-hex",
-    "bytes": "base64-data"
+  "error": {
+    "code": "STABLE_ENUM_VALUE",
+    "retryable": false
   }
 }
 ```
 
-For `REVIEW` and `BLOCKED`, the sidecar returns `verification` and a signed `receipt`, but omits `releasedResponse`.
-
-Technical failures return a closed service error with a stable code, request ID when safely parsed, and no receipt or release bytes unless the transaction had already durably completed and is being returned through an authenticated idempotent retry.
+If `requestId` was not safely parsed, it is omitted. `error` contains exactly `code` and `retryable`; `code` is one of `INVALID_REQUEST`, `UNSUPPORTED_PROTOCOL`, `AUTHENTICATION_FAILED`, `REPLAY_DETECTED`, `BUNDLE_UNAVAILABLE`, `BUNDLE_INVALID`, `IDEMPOTENCY_CONFLICT`, `PAYLOAD_TOO_LARGE`, `RESOURCE_LIMIT`, `RESULT_EXPIRED`, `STORAGE_UNAVAILABLE`, `SIGNING_UNAVAILABLE`, `VERIFIER_FAILURE`, `SERVICE_UNAVAILABLE`, or `INTERNAL_FAILURE`. No message, path, exception text, or attacker-controlled value is reflected. A technical failure contains no receipt or release bytes unless the transaction had already durably completed and is being returned through an authenticated idempotent retry.
 
 The endpoint is one logical operation but is not described as a single atomic filesystem transaction. Receipt issuance, receipt consumption, and result publication are separate durable operations and are coordinated through the recoverable phase machine below.
 
@@ -342,7 +378,7 @@ For a new authenticated request:
 1. Stream and bound the raw request body.
 2. Authenticate exact body bytes and durably consume the authentication nonce.
 3. Parse a closed service request schema.
-4. Compute a request digest over the canonical service request plus the authenticated body digest.
+4. Define `requestDigest` as exactly the lowercase 64-character SHA-256 body digest already authenticated in the MAC: `SHA256(exact RFC 8785 canonical request-body bytes)`. Do not hash the parsed request again or concatenate a second representation.
 5. Inspect the client-scoped idempotency binding before resolving the bundle. If a matching `result-committed` record exists and its delivery window remains open, return the persisted result immediately. If its delivery window is closed, return the persisted expired outcome without response bytes. A different request digest conflicts permanently within the store generation.
 6. For a new request, reserve the idempotency key and persist phase `reserved` using create-once storage. A matching nonterminal request enters recovery from its proven phase.
 7. Only for a new or resumable pre-verification request, resolve and validate the evidence bundle and create the private snapshot.
@@ -353,9 +389,9 @@ For a new authenticated request:
 12. Derive the run ID and receipt nonce deterministically from the store generation, client ID, idempotency binding, and request digest. Persist phase `receipt-prepared` before signing. It contains every immutable `createReceipt()` input or content-addressed reference required to reconstruct it exactly: run ID, nonce, created/expires times, signing key ID and public metadata, audience, purpose, engine version, maximum lifetime, receipt output path, envelope and verification digests, private snapshot ID, trusted-context digest, and, for prospective `PASS`, the exact prepared response bytes and digest.
 13. Call `createReceipt()` with only the frozen `receipt-prepared` inputs. Ed25519 signing and canonical receipt construction are deterministic for those inputs.
 14. Persist phase `receipt-issued` with the receipt digest and complete signed receipt. If `createReceipt()` fails or the process crashes after store issuance but before returning, recovery reconstructs the exact receipt from `receipt-prepared`, inspects the store by deterministic run ID or receipt digest, and completes the existing issuance; it never selects new inputs or issues a second receipt.
-15. For `PASS`, call `releaseVerifiedReceipt()` using the same envelope, trusted context, frozen receipt-key registry, prepared signing time, and shared receipt store.
+15. For `PASS`, capture a fresh host release time immediately before release and call `releaseVerifiedReceipt()` using the same envelope, trusted context, frozen receipt-key registry, that fresh release time, and the shared receipt store. The prepared signing time is used only to reconstruct the deterministic receipt; it is never reused for expiry checking or the consumed timestamp.
 16. Persist phase `pass-consumed` only after proving the receipt-store consumed marker belongs to this receipt and service transaction.
-17. Encode the response returned by `releaseVerifiedReceipt()` as exact UTF-8 bytes and base64; compare it with the prepared digest.
+17. Encode the response returned by `releaseVerifiedReceipt()` as exact UTF-8 bytes and base64; compare those bytes and their SHA-256 with both the prepared response and the original request envelope's exact UTF-8 `response.content` bytes.
 18. Persist phase `result-committed` containing the complete service result, retention deadline, and receipt expiry.
 19. Return only the persisted committed result.
 
@@ -398,7 +434,7 @@ Durable phases are:
 
 Each phase is a versioned closed record with a maximum size. Publication uses create-new or atomic same-directory promotion plus file and directory synchronization where supported. Phase transitions validate the previous record and transaction ID.
 
-The authentication-nonce store uses create-once records keyed by a hash of client ID, HMAC key ID, and nonce. Records contain the authenticated timestamp and body digest and are retained beyond the maximum timestamp-skew window. Result bytes and full result records have a configured retention bound no later than receipt expiry. Cleanup replaces an expired full idempotency record with a compact generation-scoped tombstone that permanently binds the client ID, idempotency-key hash, and request digest and records the terminal/expired state. The same key can never bind to another digest or trigger a second receipt within that store generation. Cleanup runs under the same exclusive service lock and never removes idempotency or receipt uniqueness tombstones.
+The authentication-nonce store uses create-once records keyed by `SHA256(len32be(UTF8(clientId)) || UTF8(clientId) || len32be(UTF8(nonce)) || UTF8(nonce))`. HMAC key ID is authenticated and retained as record metadata, but it is not part of the uniqueness key. The same client nonce is therefore rejected across every simultaneously active or overlapping HMAC key. Records also contain the authenticated timestamp and body digest and are retained beyond the maximum timestamp-skew window. Result bytes and full result records have a configured retention bound no later than receipt expiry. Cleanup replaces an expired full idempotency record with a compact generation-scoped tombstone that permanently binds the client ID, idempotency-key hash, and request digest and records the terminal/expired state. The same key can never bind to another digest or trigger a second receipt within that store generation. Cleanup runs under the same exclusive service lock and never removes idempotency or receipt uniqueness tombstones.
 
 The first release permits one active state-changing transaction per state root. A bounded in-memory queue may wait for that slot; overflow returns `503` with `Retry-After`. Health endpoints remain independent. A second process or concurrent process-level writer fails closed on the existing store lock.
 
