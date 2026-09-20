@@ -519,6 +519,8 @@ After `receipt-prepared` is durably published, its exact signing time, registry 
 
 Rotation uses an atomic configuration reload. The service fully parses and validates the new HMAC and receipt key registries before swapping the immutable snapshot used for new receipt preparations. Pure-verification requests that have not reached `receipt-prepared` use the new registry; already prepared transactions retain their frozen snapshot. Historical public receipt keys remain available for verification. CAGE must pin or retrieve the public trust registry through a separately authenticated deployment/configuration channel; it never trusts a key supplied by an individual sidecar response. Private key material is never written into receipts, logs, configuration examples, fixtures, or responses.
 
+The CAGE trust-manifest profile is fixed rather than algorithm-agile. Its closed manifest declares `signatureAlgorithm: "Ed25519"` and an `authorityKeyId` resolved only through pinned CAGE deployment configuration. The pinned authority public key is exactly 32 raw Ed25519 public-key bytes encoded as unpadded canonical base64url. The manifest digest retains `signatureAlgorithm` and `authorityKeyId` and omits only `manifestDigest` and `signature` before RFC 8785 canonicalization and SHA-256. The signature covers the exact UTF-8 domain separator `cage-agent-integrity-trust-manifest-v1`, one `0x00` byte, and the 32 raw digest bytes. It is exactly 64 Ed25519 signature bytes encoded as unpadded canonical base64url. Any algorithm, key ID, padding, encoding, or decoded-length mismatch fails closed before receipt-key resolution.
+
 ## 17. Shutdown and recovery
 
 On `SIGTERM` or `SIGINT`, the service:
