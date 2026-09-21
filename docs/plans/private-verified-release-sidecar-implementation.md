@@ -51,7 +51,7 @@ expect(() => parseCanonicalServiceRequest(Buffer.from(` ${canonicalJson(validReq
 
 Also test maximum body and envelope bytes, identifier alphabets/lengths, UTF-8 errors, arrays/null, unsupported version, envelope structural rejection, escaped lone UTF-16 surrogates at every nesting depth, and mutation of the returned value. The parser must return a deeply frozen object and the request digest must be lowercase SHA-256 over the accepted canonical body bytes.
 
-Define and test closed private service-response types at the same boundary. `PASS` has the exact wrapper fields `serviceProtocolVersion`, `requestId`, `status`, `verification`, `receipt`, and `releasedResponse`; `REVIEW`/`BLOCKED` omit `releasedResponse`; technical errors contain only protocol version, optional safely parsed request ID, and `{ code, retryable }`. Validate the nested verification and receipt against the unchanged public types/schemas, require all three statuses to agree, require the receipt envelope digest to match the request, reject unknown fields, and bound every string/array/body before persistence or transport.
+Define and test closed private service-response types at the same boundary. `PASS` has the exact wrapper fields `serviceProtocolVersion`, `requestId`, `status`, `verification`, `receipt`, and `releasedResponse`; `REVIEW`/`BLOCKED` omit `releasedResponse`; technical errors contain only protocol version, optional safely parsed request ID, and `{ code, retryable }`. Validate the nested verification and receipt against the unchanged public types/schemas, require response `requestId` to equal the admitted request ID, require all three statuses to agree, require the receipt envelope digest to match the request, reject unknown fields, and bound every string/array/body before persistence or transport.
 
 - [ ] **Step 2: Run the tests and prove the red state**
 
@@ -180,7 +180,7 @@ export class FileNonceStore {
 }
 ```
 
-The authentication options include the exact HTTP method, path, service protocol version, raw canonical body digest, captured host time, and immutable HMAC registry snapshot. Use `timingSafeEqual`; validate all lengths before comparison. Authentication and durable nonce consumption are separate explicit steps so no caller can describe an unconsumed authentication as admitted. The create-once nonce uniqueness key is `SHA256(len32be(UTF8(clientId)) || UTF8(clientId) || len32be(UTF8(nonce)) || UTF8(nonce))` and deliberately excludes HMAC key ID; retain the authenticated key ID only as closed record metadata so rotation cannot make a nonce reusable.
+The authentication options include the exact HTTP method, path, service protocol version, raw canonical body digest, captured host time, and immutable HMAC registry snapshot. Use `timingSafeEqual`; validate all lengths before comparison. The server must first perform bounded, side-effect-free closed parsing and canonical-byte validation to obtain the request's protocol version and stored raw-body digest. It then verifies the MAC. Only after successful constant-time comparison may the request enter the mutation coordinator and call `FileNonceStore.consume()`. Tests prove malformed or bad-MAC requests cannot publish nonce records, while a valid MAC with a conflicting nonce fails as replay. Authentication and durable nonce consumption are separate explicit steps so no caller can describe an unconsumed authentication as admitted. The create-once nonce uniqueness key is `SHA256(len32be(UTF8(clientId)) || UTF8(clientId) || len32be(UTF8(nonce)) || UTF8(nonce))` and deliberately excludes HMAC key ID; retain the authenticated key ID only as closed record metadata so rotation cannot make a nonce reusable.
 
 - [ ] **Step 6: Run focused tests and typecheck**
 
@@ -214,7 +214,7 @@ git commit -m "feat(sidecar): authenticate requests and block replay"
 
 - [ ] **Step 1: Write failing adversarial filesystem tests**
 
-Cover valid copy plus absolute/traversal/separator/nested bundle IDs, request/run identity mismatch, unknown trust fields, root swap, symlink, hardlink, FIFO/nonregular file, duplicate manifest path, extra/missing file, non-canonical raw manifest bytes, manifest self-digest error, accidental `manifest.json` file-list inclusion, size/digest mismatch, mutation during copy, broad permissions, item/byte limits, and destination collision. The authenticated HTTP request is the single authoritative envelope; no envelope copy exists inside the bundle. Tests bind every envelope source, policy, decision, and trusted-configuration reference to manifest-listed files.
+Cover valid copy plus absolute/traversal/separator/nested bundle IDs, request-ID/bundle-ID/envelope-digest mismatch, unknown fields at every level, wrong evidence-completeness statement, invalid timestamp, root swap, symlink, hardlink, FIFO/nonregular file, duplicate/unsorted manifest path or source root, extra/missing file, non-canonical raw manifest bytes, manifest self-digest error, accidental `manifest.json` file-list inclusion, size/digest mismatch, mutation during copy, broad permissions, manifest/root/file/path/byte limits, and destination collision. The authenticated HTTP request is the single authoritative envelope; no envelope copy exists inside the bundle and no receipt run ID exists yet. Tests bind every envelope source, policy, decision, and trusted-configuration reference to manifest-listed files.
 
 - [ ] **Step 2: Prove the red state**
 
@@ -224,7 +224,7 @@ Expected: FAIL with missing `bundle.ts`.
 
 - [ ] **Step 3: Implement bounded manifest validation**
 
-Use a closed manifest containing version, bundle ID, request/run identity, trusted relative policy path, trusted relative decision-registry path, trusted relative configuration path, allowed source roots, evidence-completeness attestation, publication time, optional expiry, sorted unique exhaustive relative paths below `project/`, byte counts, SHA-256 digests, and a `manifestDigest` computed over canonical JSON with that one field omitted. `manifest.json` is excluded from its own file list. Require its raw bytes to equal RFC 8785 re-canonicalization before removing only `manifestDigest`, canonicalizing the remaining object, and checking the declared digest. Bind bundle/request identities to the authenticated request. Open and stat each listed file without following links; require one link; compare parent/root identity before and after the copy.
+Implement exactly the architecture's `BundleManifestV1` schema: `version`, `bundleId`, `requestId`, `envelopeDigest`, the three trusted relative paths, sorted unique `allowedSourceRoots`, closed `evidenceCompleteness { attesterId, statement: "complete-for-request", collectedAt }`, `publishedAt`, required nullable `expiresAt`, sorted unique exhaustive `files { path, bytes, sha256 }`, and `manifestDigest`, with no additional fields. Enforce the declared identifier/path/timestamp grammar and configurable limits capped at 1 MiB manifest bytes, 64 roots, 10,000 files, and 1,024 UTF-8 bytes per path. Require exact equality with the authenticated request's bundle ID and request ID and with SHA-256 of its canonical envelope. Require the three trusted paths and every envelope source in `files`; every source must fall under exactly one allowed root. `manifest.json` is excluded from its own file list. Require its raw bytes to equal RFC 8785 re-canonicalization before removing only `manifestDigest`, canonicalizing the remaining object, and checking the declared digest. Open and stat each listed file without following links; require one link; compare parent/root identity before and after the copy.
 
 - [ ] **Step 4: Implement private snapshot publication**
 
@@ -284,6 +284,15 @@ await store.completeReceiptFile(digest, output, safeRelativeName);
 
 `ReceiptOutputBoundary` holds a validated root identity and accepts only one safe relative filename. The store never accepts an arbitrary absolute output path from a request.
 
+Also require caller-supplied service transaction identity at issuance and one terminal close operation:
+
+```ts
+store.issue(receipt, { transactionId }): Promise<void>
+store.closeIssuedReceipt(receiptDigest, { transactionId, closedAt, reasonCode }): Promise<void>
+```
+
+The store persists the exact caller-supplied transaction ID in transaction, quota, run, nonce, issued, consumed, and closed records; it never creates a second random transaction ID. Close is create-once, accepts only a bounded stable reason code, rejects a mismatched transaction or any consumed marker, and makes later consume fail. Consume rejects an existing closed marker.
+
 - [ ] **Step 3: Prove the red state**
 
 Run: `npx vitest run packages/core/tests/receipts/receipt-recovery.test.ts`
@@ -296,11 +305,11 @@ Move canonical body/signature/digest construction into `buildReceipt()`. Keep `c
 
 - [ ] **Step 5: Add bounded inspection APIs**
 
-Add `receipt-store-records.ts` with closed parsers for issued, consumed, quota, transaction, recovery, and cleanup records. Reject unknown fields, malformed JSON, oversized values, invalid embedded receipts, and binding mismatches. Add `receipt-output-boundary.ts` to validate/open the configured output root, pin its identity, reject symlink/root replacement, and publish only create-once relative receipt files. Use existing store locks for coherent inspection and bounded directory traversal. Return deep-frozen validated data. `inspectCapacity()` reports used/maximum records without deleting tombstones.
+Add `receipt-store-records.ts` with closed parsers for issued, consumed, closed, quota, transaction, recovery, and cleanup records. Reject unknown fields, malformed JSON, oversized values, invalid embedded receipts, and binding mismatches. Change receipt issuance to require the validated service transaction ID instead of calling `randomUUID()` internally, propagate it to every record, and add the create-once close operation plus consumed/closed mutual-exclusion checks. Add `receipt-output-boundary.ts` to validate/open the configured output root, pin its identity, reject symlink/root replacement, and publish only create-once relative receipt files. Use existing store locks for coherent inspection and bounded directory traversal. Return deep-frozen validated data. `inspectCapacity()` reports used/maximum records without deleting tombstones.
 
 - [ ] **Step 6: Add crash-window tests**
 
-Fault-inject after store issuance but before output completion, and after output publication/directory sync but before the caller observes success. Rebuild the identical receipt from frozen inputs and inspect the issued record. `completeReceiptFile()` may accept an existing relative output only after the boundary revalidates its root identity and bounded, closed parsing proves the file is byte-equivalent to the issued receipt; otherwise it fails closed and never overwrites. Add absolute/traversal/separator name, symlink, root-substitution, and conflicting-file tests. Prove a second issuance is rejected.
+Fault-inject after store issuance but before output completion, and after output publication/directory sync but before the caller observes success. Rebuild the identical receipt from frozen inputs and inspect the issued record. Prove transaction-ID mismatch fails, consumed-versus-closed races have exactly one winner, closed receipts cannot be consumed, consumed receipts cannot be closed, and crash recovery preserves the original transaction ID. `completeReceiptFile()` may accept an existing relative output only after the boundary revalidates its root identity and bounded, closed parsing proves the file is byte-equivalent to the issued receipt; otherwise it fails closed and never overwrites. Add absolute/traversal/separator name, symlink, root-substitution, and conflicting-file tests. Prove a second issuance is rejected.
 
 - [ ] **Step 7: Run receipt, SDK release, and schema regressions**
 
@@ -328,6 +337,7 @@ git commit -m "feat(core): expose deterministic receipt recovery"
 **Files:**
 - Create: `packages/sidecar/src/request-state.ts`
 - Create: `packages/sidecar/src/request-store.ts`
+- Create: `packages/sidecar/src/state-coordinator.ts`
 - Create: `packages/sidecar/src/private-object-store.ts`
 - Create: `packages/sidecar/tests/request-store.test.ts`
 
@@ -339,13 +349,14 @@ Define these exact discriminated records:
 reserved: client ID, store generation, idempotency-key hash, exact request digest (identical to the authenticated canonical-body digest), request ID, transaction ID, and content-addressed private canonical-request object ID
 verified: reserved + private snapshot ID, envelope digest, verification digest, complete canonical verification/outcome
 receipt-prepared: verified + fresh signing time, content-addressed complete public receipt-trust snapshot ID/digest, key ID/public metadata, deterministic run ID/nonce, created/expires times, audience, purpose, engine version, max lifetime, output path, trusted-context digest, and exact prepared PASS bytes/digest when applicable
-receipt-issued: receipt-prepared + complete signed receipt and receipt digest
+receipt-issued: receipt-prepared + complete signed receipt, receipt digest, and shared service transaction ID
 pass-consumed: receipt-issued + exact validated consumed-marker identity and consumption time
+release-refused: receipt-issued + exact validated closed-marker identity and stable no-bytes result
 result-committed: terminal response, outcome, receipt expiry, delivery deadline, and response-byte retention state
 tombstone: client/store generation/idempotency-key hash + permanent request-digest binding + terminal/expired state, with no response bytes
 ```
 
-Prove only this branch-specific graph: `reserved -> verified -> receipt-prepared -> receipt-issued`; PASS alone may continue through `pass-consumed -> result-committed`; REVIEW/BLOCKED go directly from `receipt-issued -> result-committed`. Reject unknown fields, oversized records, skipped/reversed phases, owner changes, and contradictory duplicate publication.
+Prove only this branch-specific graph: `reserved -> verified -> receipt-prepared -> receipt-issued`; an original REVIEW/BLOCKED outcome goes directly from `receipt-issued -> result-committed`; a prospective PASS continues through either `pass-consumed -> result-committed` or `release-refused -> result-committed`. Reject unknown fields, oversized records, skipped/reversed phases, owner changes, transaction-ID changes, and contradictory duplicate publication.
 
 - [ ] **Step 2: Write failing idempotency tests**
 
@@ -353,11 +364,11 @@ Prove new reservation publishes the exact bounded canonical request bytes into a
 
 - [ ] **Step 3: Write failing cross-process and durability tests**
 
-Use child processes to prove one persistent writer lock, no automatic lock stealing, offline exact-token recovery, file/directory sync failure handling, bounded record/capacity accounting, and fail-closed ambiguous state. The in-memory transaction queue is not owned by this store and is added separately in Task 8.
+Use child processes to prove one state-root process lease covering nonce, request, idempotency, receipt, transaction, and snapshot mutations; second-process rejection; no automatic lock stealing; offline exact-token recovery; append-only owner-token handoff; file/directory sync failure handling; bounded record/capacity accounting; and fail-closed ambiguous state. Prove the lease records store generation and canonical root identity. The in-memory transaction queue is added separately in Task 8 but may mutate state only through the lease-owning coordinator.
 
 - [ ] **Step 4: Implement state unions and validation**
 
-`request-state.ts` owns types, closed parsers, transition table, and digests only. `private-object-store.ts` owns bounded create-once canonical request and public registry snapshots, closed reads, digest validation, strict permissions, reference-aware cleanup, and no source-byte storage. `request-store.ts` reuses `durable-json.ts` and owns filesystem locking, phase publication, lookup, tombstone compaction, capacity, and offline recovery only.
+`request-state.ts` owns types, closed parsers, transition table, and digests only. `private-object-store.ts` owns bounded create-once canonical request and public registry snapshots, closed reads, digest validation, strict permissions, reference-aware cleanup, and no source-byte storage. `state-coordinator.ts` owns the lifetime state-root lease, immutable owner token, single mutation capability, and validated offline token handoff; it exposes no arbitrary unlock operation. `request-store.ts` reuses `durable-json.ts` and owns phase publication, lookup, tombstone compaction, and capacity only when called with that mutation capability.
 
 - [ ] **Step 5: Run focused tests**
 
@@ -373,7 +384,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/sidecar/src/request-state.ts packages/sidecar/src/request-store.ts packages/sidecar/src/private-object-store.ts packages/sidecar/tests/request-store.test.ts
+git add packages/sidecar/src/request-state.ts packages/sidecar/src/request-store.ts packages/sidecar/src/state-coordinator.ts packages/sidecar/src/private-object-store.ts packages/sidecar/tests/request-store.test.ts
 git commit -m "feat(sidecar): persist recoverable request phases"
 ```
 
@@ -387,7 +398,7 @@ git commit -m "feat(sidecar): persist recoverable request phases"
 
 - [ ] **Step 1: Write failing closed-config tests**
 
-Test required absolute paths, distinct socket/bundle/snapshot/state/receipt roots, one configured CAGE client, numeric bounds, audience/purpose, store generation, HMAC overlap, receipt registry, and rejection of unknown fields/environment fallbacks.
+Test required absolute socket and bundle paths plus one sidecar-owned state root with fixed nonce/request/receipt/transaction/snapshot children, one configured CAGE client, numeric bounds, audience/purpose, store generation, HMAC overlap, receipt registry, and rejection of unknown fields/environment fallbacks.
 
 - [ ] **Step 2: Write failing permission and key tests**
 
@@ -483,13 +494,15 @@ Prove PASS returns the signed receipt plus base64 of only the exact bytes return
 Instrument collaborators and assert:
 
 ```text
-authenticate -> consume auth nonce -> parse/digest -> idempotency lookup/reserve
+bounded closed parse/digest -> authenticate MAC -> enter mutation coordinator
+-> consume auth nonce -> idempotency lookup/reserve with one transaction ID
 -> bundle snapshot -> pure verify -> verified -> fresh key check
--> receipt-prepared -> receipt issue -> receipt-issued
--> PASS consume -> pass-consumed -> result-committed -> return
+-> receipt-prepared -> receipt issue with same transaction ID -> receipt-issued
+-> PASS release -> inspect consumed/closed state
+-> pass-consumed or release-refused -> result-committed -> bind request ID -> return
 ```
 
-For completed retries, assert the path stops after idempotency lookup and never touches the removed bundle.
+Prove bad-MAC input cannot consume a nonce, queue timeout occurs before nonce mutation, every response request ID equals the admitted request ID, and completed retries stop after idempotency lookup without touching the removed bundle.
 
 - [ ] **Step 3: Write failing crash-matrix tests**
 
@@ -503,7 +516,7 @@ recoverConsumedRelease({
 }): Promise<ReleaseResult>
 ```
 
-The function must load the exact consumed marker internally through `FileReceiptStore.inspectConsumed()`, validate receipt/run/nonce/digest/transaction/time bindings, call `validateTrustedReceipt()` at the fresh `now`, call `releaseVerifiedResponse()` to recollect trusted inputs, compare exact response bytes with `preparedResponseDigest`, and only then return. It never accepts a caller-provided consumed record and never calls consume. Restart with the same state and prove exact recovery, no second receipt, no second consumption, and no unproved release. A receipt that expires before recovery releases no bytes; never reuse the prepared signing time as the recovery/recheck time.
+The function must load the exact consumed marker internally through `FileReceiptStore.inspectConsumed()`, validate receipt/run/nonce/digest/shared-transaction/time bindings, call `validateTrustedReceipt()` at the fresh `now`, call `releaseVerifiedResponse()` to recollect trusted inputs, compare exact response bytes with `preparedResponseDigest`, and only then return. It never accepts a caller-provided consumed record and never calls consume. For a non-PASS return from `releaseVerifiedReceipt()`, inspect the store: a matching consumed marker uses this recovery path; a proven unconsumed receipt is closed create-once and advances through `release-refused`; missing, contradictory, or unreadable evidence makes readiness false. Restart with the same state and prove exact recovery, no second receipt, no second consumption, and no unproved release. A receipt that expires before consumption is closed and releases no bytes; never reuse the prepared signing time as the recovery/recheck time.
 
 - [ ] **Step 4: Write failing time/key/idempotency tests**
 
@@ -511,7 +524,7 @@ Cover expiry/revocation during verification before preparation, publication and 
 
 - [ ] **Step 5: Implement the bounded scheduler and readiness latch**
 
-`scheduler.ts` owns the one-active-state-changing-transaction rule, bounded in-memory queue, queue deadline, `503` overflow state, and graceful drain. It does not own persistent locking. `readiness.ts` aggregates validated configuration, key availability, store locks/capacity, socket identity, and ambiguous recovery state; it exposes reason codes without paths or secrets.
+`scheduler.ts` owns the bounded in-memory queue and one active mutation capability at a time. It acquires that capability from the lifetime lease-owning `state-coordinator`; queue timeout and `503` overflow happen before nonce consumption. The active request retains the capability through terminal or durably recoverable phase publication, including pure verification in this first one-client profile, so no request or recovery worker can interleave cross-store transitions. `readiness.ts` aggregates validated configuration, root lease ownership, key availability, store capacity, socket identity, and ambiguous recovery state; it exposes reason codes without paths or secrets.
 
 - [ ] **Step 6: Implement the service and recovery dispatcher**
 
@@ -522,8 +535,9 @@ reserved -> snapshot and verify from persisted canonical request
 verified -> fresh key check, persist public registry snapshot, prepare
 receipt-prepared -> reconstruct, inspect, and complete exact issuance
 receipt-issued REVIEW/BLOCKED -> result-committed
-receipt-issued PASS -> consume, then pass-consumed
+receipt-issued PASS -> release and inspect store; matching consumed -> pass-consumed; proven unconsumed non-PASS -> close and release-refused
 pass-consumed -> store-backed recoverConsumedRelease, then result-committed
+release-refused -> result-committed with no receipt or release bytes
 result-committed -> bounded redelivery or expired response
 unknown/contradictory -> readiness false and offline recovery only
 ```
@@ -569,7 +583,7 @@ Test only `POST /v1/verify-release`, `GET /health/live`, and `GET /health/ready`
 
 - [ ] **Step 2: Write failing socket lifecycle tests**
 
-Prove configured directory identity/mode, stale socket handling, socket-path symlink rejection, post-bind owner/group/mode verification, second-server failure, shutdown stop-accepting behavior, verification-worker cancellation, state-changing grace period, and nonzero unsafe shutdown.
+Prove a root-parented socket directory owned by the sidecar identity with client-group mode `0710`; CAGE can traverse but cannot list/create/replace/unlink entries; the sidecar can bind and unlink only a stale Unix socket with the exact expected owner/group; regular files, symlinks, foreign sockets, and changed directory identity fail closed. Prove post-bind socket owner/group/mode `0660`, second-server failure, shutdown stop-accepting behavior, verification-worker cancellation, state-changing grace period, and nonzero unsafe shutdown.
 
 - [ ] **Step 3: Write failing CLI recovery tests**
 
@@ -577,7 +591,7 @@ Generate temporary absolute roots and test-only Ed25519/HMAC files through `test
 
 - [ ] **Step 4: Implement server and health checks**
 
-Use `node:http` over `server.listen(socketPath)`. Collect raw headers without normalization loss, stream and cap the body before parsing, and write only the persisted service result. Liveness checks event-loop response only. Readiness checks configuration, keys, stores, capacity, bundle/snapshot roots, socket identity, and absence of ambiguous recovery state without issuing/consuming a receipt.
+Use `node:http` over `server.listen(socketPath)`. Validate the sidecar-owned `0710` socket directory before touching the socket path; remove only a validated stale socket owned by the configured sidecar UID and client GID; bind; set socket mode `0660`; and revalidate the directory and socket identities. Collect raw headers without normalization loss, stream and cap the body, perform bounded closed canonical parsing before MAC verification, and write only the persisted service result. Liveness checks event-loop response only. Readiness checks configuration, keys, the state-root lease, capacity, bundle/snapshot roots, socket identity, and absence of ambiguous recovery state without issuing/consuming a receipt.
 
 - [ ] **Step 5: Implement the CLI entrypoint**
 
@@ -685,7 +699,7 @@ Create a detached worktree at `TESTED_CODE_COMMIT`, confirm no `node_modules`/`d
 
 - [ ] **Step 1: Write package and integration documentation**
 
-Document exact guarantee, separate Unix identities, socket/HMAC/signing-key provisioning, evidence bundle ownership, response contract, verdict routing, phase machine, retry rules, key rotation, store generation, health, limits, and explicit non-goals. Define CAGE trust-manifest generation, freshness, rollback rejection, atomic refresh, cache-expiry behavior, and fail-closed unknown/revoked key handling. Freeze the trust-manifest signature profile as Ed25519 with a pinned authority key ID, a 32-byte raw public key encoded as 43-character unpadded canonical base64url, a domain-separated preimage containing the raw 32-byte manifest digest, and a 64-byte signature encoded as 86-character unpadded canonical base64url; require rejection tests for every algorithm, key-ID, padding, encoding, and decoded-length mismatch in the later CAGE integration PR. State that CAGE runtime integration is a separate PR against the current partner layout and that CAGE must verify the signed receipt and exact returned bytes before admitting them.
+Document exact guarantee, separate Unix identities, socket/HMAC/signing-key provisioning, evidence bundle ownership, response contract, verdict routing, phase machine, retry rules, key rotation, store generation, health, limits, and explicit non-goals. Define CAGE trust-manifest generation, freshness, rollback rejection, atomic refresh, cache-expiry behavior, and fail-closed unknown/revoked key handling. Persist the accepted `(generation, manifestDigest)` pair; reject lower generations and equal-generation digest conflicts. Freeze the trust-manifest signature profile as Ed25519 with a pinned authority key ID, a 32-byte raw public key encoded as 43-character unpadded canonical base64url, a domain-separated preimage containing the raw 32-byte manifest digest, and a 64-byte signature encoded as 86-character unpadded canonical base64url; require rejection tests for every algorithm, key-ID, padding, encoding, and decoded-length mismatch in the later CAGE integration PR. State that CAGE runtime integration is a separate PR against the current partner layout. Before admission CAGE must bind the response request ID, verify expected issuer/audience/purpose/engine version and trusted policy, enforce receipt and key validity/revocation at a fresh host time, verify the envelope digest and signed receipt, and dispatch only the exact returned bytes.
 
 - [ ] **Step 2: Write the result document from executed evidence**
 
