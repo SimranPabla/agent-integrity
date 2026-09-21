@@ -242,7 +242,7 @@ type BundleManifestV1 = Readonly<{
     collectedAt: CanonicalUtcTimestamp;
   }>;
   publishedAt: CanonicalUtcTimestamp;
-  expiresAt: CanonicalUtcTimestamp | null;
+  expiresAt: CanonicalUtcTimestamp;
   files: readonly Readonly<{
     path: ProjectRelativePath;
     bytes: number;
@@ -255,6 +255,8 @@ type BundleManifestV1 = Readonly<{
 `SafeId` uses `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. `ProjectRelativePath` is a normalized UTF-8 path below `project/`, contains no empty, dot, dot-dot, backslash, absolute, or percent-encoded traversal segment, and is at most 1,024 UTF-8 bytes. `CanonicalUtcTimestamp` is an RFC 3339 UTC timestamp with exactly three fractional-second digits and terminal `Z`. Arrays are sorted bytewise, contain no duplicates, and are non-empty where required. `files` contains every allowed regular file below `project/`, including policy, decision, trusted-configuration, and approved-source files. Every byte count is a non-negative safe integer within the configured per-file and total-bundle limits.
 
 The parser rejects unknown fields and enforces configurable limits no greater than these hard ceilings: 1 MiB manifest bytes, 64 allowed source roots, 10,000 files, and 1,024 UTF-8 bytes per path. Configuration may only lower those limits. `bundleId` and `requestId` must equal the admitted service request. `envelopeDigest` must equal SHA-256 of the request's canonical Agent Integrity envelope. The receipt run ID does not exist at bundle-publication time and is not a manifest field; it is derived later by the sidecar. The exact `policyPath`, `decisionRegistryPath`, and `trustedConfigPath` must be listed in `files`. Every envelope source path must be listed in `files` and fall under exactly one `allowedSourceRoots` entry. `evidenceCompleteness.statement` is a scoped attestation by the configured CAGE collector, not proof that the supplied evidence is objectively complete.
+
+Bundle freshness is checked against one fresh sidecar host time captured when a new or pre-snapshot transaction resolves the incoming bundle. `expiresAt` is required and never nullable. The service requires `publishedAt < expiresAt`, `evidenceCompleteness.collectedAt <= publishedAt`, `publishedAt <= now + configuredFutureSkew`, `now < expiresAt`, and `expiresAt - publishedAt <= configuredMaximumBundleLifetime`. Configuration may set `configuredFutureSkew` no higher than 60 seconds and `configuredMaximumBundleLifetime` no higher than 15 minutes. Equality at `expiresAt` is expired. Once the complete bundle has passed these checks and its sidecar-owned private snapshot is durably published, crash recovery uses that authenticated snapshot and does not reinterpret later wall-clock passage as permission to reopen or replace the incoming bundle.
 
 `manifest.json` is not an entry in its own exhaustive file list. Its raw bytes must themselves be RFC 8785 canonical JSON and must equal byte-for-byte re-canonicalization of the parsed closed manifest. The sidecar then removes only `manifestDigest`, canonicalizes the remaining object, and verifies that SHA-256 against the declared lowercase-hex `manifestDigest`. This avoids a circular self-digest while authenticating the complete manifest bytes through one reproducible rule.
 
@@ -352,20 +354,36 @@ type RefusalResponse = Readonly<{
   verification: IntegrityResult;
   receipt: AlphaIntegrityReceipt;
 }>;
+
+type ReleaseRefusedResponse = Readonly<{
+  serviceProtocolVersion: "1";
+  requestId: SafeId;
+  status: "RELEASE_REFUSED";
+  verification: IntegrityResult & { status: "PASS" };
+  receipt: AlphaIntegrityReceipt;
+  release: Readonly<{
+    status: "REVIEW" | "BLOCKED";
+    code: "RECEIPT_RECHECK_REFUSED";
+    retryable: false;
+  }>;
+}>;
 ```
 
 The service parser and serializer use closed discriminated response types:
 
 - `PASS` contains exactly `serviceProtocolVersion`, `requestId`, `status`, `verification`, `receipt`, and `releasedResponse`;
 - `REVIEW` and `BLOCKED` contain exactly `serviceProtocolVersion`, `requestId`, `status`, `verification`, and `receipt` and must omit `releasedResponse`;
+- `RELEASE_REFUSED` contains exactly `serviceProtocolVersion`, `requestId`, `status`, `verification`, `receipt`, and `release`; it records that a previously signed prospective PASS receipt failed the fresh release recheck and must omit `releasedResponse`;
 - `verification` must validate as the closed public `IntegrityResult 1-alpha` type;
 - `receipt` must validate as the closed public `IntegrityReceipt 2-alpha` schema;
-- wrapper `status`, `verification.status`, and `receipt.verification.status` must be identical;
+- for `PASS`, `REVIEW`, and `BLOCKED`, wrapper `status`, `verification.status`, and `receipt.verification.status` must be identical;
+- for `RELEASE_REFUSED`, `verification.status` and `receipt.verification.status` must both be `PASS`, while `release.status` records the fresh recheck's non-PASS outcome;
+- for every receipt-bearing response, RFC 8785 canonical bytes of wrapper `verification` must equal RFC 8785 canonical bytes of `receipt.verification`; the wrapper is never an independent or unsigned findings channel;
 - `requestId` must equal the `requestId` of the admitted request being answered, including for an authenticated idempotent retry;
 - `receipt.envelopeDigest` must equal the digest independently recomputed from the exact request envelope;
 - `releasedResponse` contains exactly `encoding`, `sha256`, and `bytes`; `encoding` is `base64`, `sha256` is lowercase hexadecimal SHA-256, and `bytes` is canonical padded base64 within the configured response limit.
 
-For `REVIEW` and `BLOCKED`, the sidecar returns `verification` and a signed `receipt`, but omits `releasedResponse`.
+For `REVIEW`, `BLOCKED`, and `RELEASE_REFUSED`, the sidecar returns no `releasedResponse`. A `RELEASE_REFUSED` response preserves the already-issued signed receipt as evidence, but the receipt's prospective PASS verdict does not authorize dispatch because the separate release stage failed. The response is a terminal, non-retryable, non-admitting service outcome.
 
 Technical failures return one of two closed shapes and no other fields:
 
@@ -407,13 +425,13 @@ For every request, the server uses this exact order:
 10. Run pure trusted verification in a dedicated worker. The worker may be terminated at the verification deadline because it has no receipt or result-store mutation authority.
 11. Persist phase `verified` with the canonical verification result and private snapshot ID.
 12. Immediately before receipt preparation, capture a fresh host signing time and the current fully validated receipt-key registry. Check that the selected signing key is present, matches its public key and metadata, is not revoked, and is valid at that fresh time.
-13. Derive the run ID and receipt nonce deterministically from the store generation, client ID, idempotency binding, and request digest. Persist phase `receipt-prepared` before signing. It contains the same service `transactionId` plus every immutable `createReceipt()` input or content-addressed reference required to reconstruct it exactly: run ID, nonce, created/expires times, signing key ID and public metadata, audience, purpose, engine version, maximum lifetime, receipt output path, envelope and verification digests, private snapshot ID, trusted-context digest, and, for prospective `PASS`, the exact prepared response bytes and digest.
+13. Derive the run ID and receipt nonce deterministically from the store generation, client ID, idempotency binding, and request digest. Persist phase `receipt-prepared` before signing. It contains the same service `transactionId` plus every immutable `createReceipt()` input or content-addressed reference required to reconstruct it exactly: run ID, nonce, created/expires times, signing key ID and public metadata, audience, purpose, engine version, maximum lifetime, a validated safe relative `receiptOutputName`, the pinned `receiptOutputRootIdentity`, envelope and verification digests, private snapshot ID, trusted-context digest, and, for prospective `PASS`, the exact prepared response bytes and digest. It never stores an absolute or request-controlled output path.
 14. Call `createReceipt()` with only the frozen `receipt-prepared` inputs and pass the same service `transactionId` into receipt-store issuance. The receipt store must persist that caller-supplied transaction ID in its issuance, quota, issued, and later consumed/closed records; it may not generate a second transaction identity. Ed25519 signing and canonical receipt construction are deterministic for the prepared inputs.
 15. Persist phase `receipt-issued` with the receipt digest and complete signed receipt. If `createReceipt()` fails or the process crashes after store issuance but before returning, recovery reconstructs the exact receipt from `receipt-prepared`, inspects the store by deterministic run ID or receipt digest, requires the shared transaction ID, and completes the existing issuance; it never selects new inputs or issues a second receipt.
 16. `REVIEW` and `BLOCKED` verification outcomes proceed directly to a no-bytes `result-committed` record.
 17. For prospective `PASS`, capture a fresh host release time immediately before release and call `releaseVerifiedReceipt()` using the same envelope, trusted context, frozen receipt-key registry, that fresh release time, and the shared receipt store. The prepared signing time is used only to reconstruct the deterministic receipt; it is never reused for expiry checking or the consumed timestamp.
 18. If release returns `PASS`, require the consumed marker to bind the receipt digest and shared service transaction ID, then persist `pass-consumed`. Encode the returned response as exact UTF-8 bytes and base64 and compare those bytes and their SHA-256 with both the prepared response and the original request envelope's exact UTF-8 `response.content` bytes.
-19. If release returns `REVIEW` or `BLOCKED`, inspect the receipt store before deciding the transition. When no consumed marker exists, durably close the issued receipt with the shared transaction ID so future consumption rejects it, persist terminal phase `release-refused` with a stable no-bytes result, and then commit that result. When a matching consumed marker exists, recover through the same `pass-consumed` validation path because consumption may have succeeded before the caller observed an error. A store error or contradictory marker is ambiguous state: return no bytes, set readiness false, and require recovery; never guess that consumption did or did not occur.
+19. If release returns `REVIEW` or `BLOCKED`, inspect the receipt store before deciding the transition. When no consumed marker exists, durably close the issued receipt with the shared transaction ID so future consumption rejects it, persist terminal phase `release-refused` with the complete signed receipt and the exact canonical `ReleaseRefusedResponse`, and then commit that result. The response uses the release result's `REVIEW` or `BLOCKED` status only in `release.status`, carries stable code `RECEIPT_RECHECK_REFUSED`, and releases no bytes. When a matching consumed marker exists, recover through the same `pass-consumed` validation path because consumption may have succeeded before the caller observed an error. A store error or contradictory marker is ambiguous state: return no bytes, set readiness false, and require recovery; never guess that consumption did or did not occur.
 20. Persist phase `result-committed` containing the complete service result, its matching request ID, retention deadline, and receipt expiry.
 21. Return only the persisted committed result, and require `response.requestId === request.requestId` before serialization and again in CAGE before admission.
 
@@ -449,21 +467,21 @@ Durable phases are:
 
 - `reserved`: client, idempotency key hash, exact request digest, request ID, and transaction ID;
 - `verified`: reserved record plus verification digest, outcome, and private snapshot ID;
-- `receipt-prepared`: verified record plus every frozen receipt-construction input, fresh signing time, registry digest, deterministic run ID and nonce, output path, expiry, and prepared response bytes/digest for PASS;
+- `receipt-prepared`: verified record plus every frozen receipt-construction input, fresh signing time, registry digest, deterministic run ID and nonce, validated relative receipt-output name, pinned output-root identity, expiry, and prepared response bytes/digest for PASS;
 - `receipt-issued`: receipt-prepared record plus receipt digest, complete signed receipt, and the same transaction ID stored by the receipt store;
 - `pass-consumed`: receipt-issued record plus validated consumed marker identity;
-- `release-refused`: receipt-issued record plus validated unconsumed/closed marker identity and a stable no-bytes refusal result;
+- `release-refused`: receipt-issued record plus validated unconsumed/closed marker identity and the exact stable `ReleaseRefusedResponse`, including the signed receipt and no release bytes;
 - `result-committed`: terminal service response, retention deadline, and outcome.
 
 Each phase is a versioned closed record with a maximum size. Publication uses create-new or atomic same-directory promotion plus file and directory synchronization where supported. Phase transitions validate the previous record and transaction ID.
 
 The authentication-nonce store uses create-once records keyed by `SHA256(len32be(UTF8(clientId)) || UTF8(clientId) || len32be(UTF8(nonce)) || UTF8(nonce))`. HMAC key ID is authenticated and retained as record metadata, but it is not part of the uniqueness key. The same client nonce is therefore rejected across every simultaneously active or overlapping HMAC key. Records also contain the authenticated timestamp and body digest and are retained beyond the maximum timestamp-skew window. Result bytes and full result records have a configured retention bound no later than receipt expiry. Cleanup replaces an expired full idempotency record with a compact generation-scoped tombstone that permanently binds the client ID, idempotency-key hash, and request digest and records the terminal/expired state. The same key can never bind to another digest or trigger a second receipt within that store generation. Cleanup runs under the same exclusive service lock and never removes idempotency or receipt uniqueness tombstones.
 
-The first release permits one active state-changing transaction per state root. At startup, the process creates a state-root lease containing a random owner token, store generation, canonical root identity, and start time, and holds that lease until clean shutdown. The lease covers nonce, request, idempotency, receipt, transaction, and snapshot mutations; per-method receipt-store locks remain defense in depth but do not define the cross-store transaction boundary. A second process fails closed on the existing root lease and never steals it.
+The first release permits one active state-changing transaction per state root. At startup, the process creates a state-root lease containing one random owner token, store generation, canonical root identity, and start time, and holds that lease until clean shutdown. The lease covers nonce, request, idempotency, receipt, transaction, and snapshot mutations. Per-method receipt-store locks remain defense in depth but must inherit that exact root owner token; they may not generate an independent token. Every nested lock record binds the same store generation and root identity. A second process fails closed on the existing root lease and never steals it.
 
 Inside the lease-owning process, one mutation coordinator serializes the sequence from nonce consumption through terminal phase publication. A bounded in-memory queue may wait before nonce consumption; overflow or queue timeout returns `503` with `Retry-After` and performs no durable mutation. Every phase and every receipt-store issued, consumed, or closed record carries the same service transaction ID. Recovery may advance a transaction only while holding the root lease and after validating that shared ID across stores.
 
-After a crash, startup does not silently replace the abandoned owner token. The offline-exclusive recovery command must present the exact protected authorization already defined for the store generation and abandoned token. It validates every nonterminal record, publishes an append-only handoff record from the abandoned token to a new recovery token, and only then may resume a proven phase or close an ambiguous transaction. Contradictory IDs, a live writer, missing handoff evidence, or uncertainty about receipt consumption keeps readiness false. Health endpoints remain independent of the mutation queue.
+After a crash, startup does not silently replace the abandoned owner token. The offline-exclusive recovery command must present the exact protected authorization already defined for the store generation and abandoned root token. Before any handoff it performs a bounded enumeration of the root lease and every permitted nested receipt-store lock, requiring each present lock to bind that same abandoned token, generation, and root identity. It then publishes one append-only handoff record covering the complete enumerated lock set and changes all subsequent lock ownership to one new recovery token. A missing, additional, independently tokened, or contradictory lock fails closed; partial handoff is forbidden. Only after the complete handoff may recovery resume a proven phase or close an ambiguous transaction. A live writer, missing handoff evidence, or uncertainty about receipt consumption keeps readiness false. Health endpoints remain independent of the mutation queue.
 
 Receipt-store capacity includes PASS, REVIEW, and BLOCKED receipts. Readiness becomes false at the configured safety threshold before exhaustion. Exhaustion fails closed. Store rotation is an offline operator procedure: activate a new store generation with a new audience/purpose or explicitly versioned store identity after old receipts expire, retain old idempotency and receipt tombstones read-only for their required audit period, and never merge or reset consumed state. Idempotency keys are scoped to the authenticated client and explicit store generation; a new generation is a deliberate protocol/configuration event, not automatic cleanup.
 
@@ -472,6 +490,7 @@ Receipt-store capacity includes PASS, REVIEW, and BLOCKED receipts. Readiness be
 - `PASS`: HTTP `200`; signed receipt; exact released bytes included.
 - `REVIEW`: HTTP `200`; signed receipt; no released bytes.
 - `BLOCKED`: HTTP `200`; signed receipt; no released bytes.
+- `RELEASE_REFUSED`: HTTP `200`; the already-issued signed prospective PASS receipt plus a stable terminal release-refusal record; no released bytes; never retryable as a new release attempt.
 - malformed request or unsupported service protocol: HTTP `400`; no receipt; no released bytes.
 - failed authentication or replayed auth nonce: HTTP `401`; no receipt; no released bytes.
 - missing or inaccessible bundle: HTTP `422`; no receipt; no released bytes.
@@ -479,7 +498,7 @@ Receipt-store capacity includes PASS, REVIEW, and BLOCKED receipts. Readiness be
 - request/body/resource limit: HTTP `413` or `422`; no released bytes.
 - unavailable storage, signing, verifier exception, or internal failure: HTTP `503` or `500`; no released bytes.
 
-CAGE must treat every non-200 response, malformed response, timeout, disconnect, invalid receipt, `REVIEW`, and `BLOCKED` as not admitted.
+CAGE must treat every non-200 response, malformed response, timeout, disconnect, invalid receipt, `REVIEW`, `BLOCKED`, and `RELEASE_REFUSED` as not admitted.
 
 ## 14. Limits and denial-of-service controls
 
@@ -601,6 +620,7 @@ Required test classes:
 - missing manifest/source/policy/registry;
 - incorrect manifest self-digest, duplicate paths, extra files, missing files, size/digest mismatch, hardlinks, and non-regular files;
 - unknown manifest fields, invalid evidence-completeness attestation, request/envelope binding mismatch, unsorted roots/files, and every hard limit;
+- nullable, expired, future-dated, reversed, and overlong bundle validity intervals, including exact expiry equality;
 - incoming root replacement and mutation during private-snapshot copying;
 - source outside allowed roots;
 - mutable or inconsistent snapshot;
@@ -617,8 +637,10 @@ Required test classes:
 - crash after receipt issuance but before `receipt-issued` phase publication;
 - crash after PASS consumption but before `pass-consumed` or `result-committed` publication;
 - non-PASS release before consumption closes the receipt and commits no bytes; a post-consumption error recovers only from the matching consumed marker;
+- release refusal preserves the original signed receipt, commits one exact no-bytes response, and returns byte-identical canonical responses on authenticated retry;
 - shared service transaction ID mismatch across request and receipt stores;
 - active process lease rejection, abandoned-token handoff, and cross-store mutation interleaving attempts;
+- nested receipt-store locks use the root owner token, and missing, foreign-token, or partial lock handoff fails closed;
 - idempotency reservation/completion failures;
 - signing failure;
 - verifier exception;
