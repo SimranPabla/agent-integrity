@@ -43,42 +43,58 @@ All CAGE-specific sidecar lifecycle, authentication, and HTTP/IPC code remains w
 
 CAGE treats `receipt.signature.keyId` as the receipt `kid` and resolves it only through a separately provisioned, authenticated trust manifest. A public key embedded in a receipt or sidecar response is never accepted as its own trust anchor.
 
-The trust manifest is one RFC 8785 canonical JSON object with this exact closed schema and no unknown or optional fields:
+The trust manifest is one RFC 7517 JWK Set, encoded as an RFC 8785 canonical JSON object, with this exact closed profile and no unknown or optional fields. Its `keys` member is directly consumable by CAGE's JWKS parser. The collision-resistant top-level extension carries the signed lifecycle and receipt-profile controls that a generic JWKS parser is required to ignore but Provider 06 is required to validate before trusting any key:
 
 ```ts
+type CageReceiptJwkV1 = Readonly<{
+  kty: "OKP";
+  crv: "Ed25519";
+  x: CanonicalBase64Url32;
+  kid: SafeId;
+  use: "sig";
+  alg: "EdDSA";
+}>;
+
 type CageReceiptTrustManifestV1 = Readonly<{
-  version: "1";
-  generation: number;
-  issuedAt: CanonicalUtcTimestamp;
-  validUntil: CanonicalUtcTimestamp;
-  receiptProfile: Readonly<{
-    issuer: BoundedString;
-    audience: BoundedString;
-    purpose: BoundedString;
-    engineVersion: BoundedString;
-    maximumReceiptLifetimeSeconds: number;
-    maximumFutureSkewSeconds: number;
+  keys: readonly CageReceiptJwkV1[];
+  "https://github.com/SimranPabla/agent-integrity/params/jwks/receipt-manifest/v1": Readonly<{
+    version: "1";
+    generation: number;
+    issuedAt: CanonicalUtcTimestamp;
+    validUntil: CanonicalUtcTimestamp;
+    receiptProfile: Readonly<{
+      issuer: BoundedString;
+      audience: BoundedString;
+      purpose: BoundedString;
+      engineVersion: BoundedString;
+      maximumReceiptLifetimeSeconds: number;
+      maximumFutureSkewSeconds: number;
+    }>;
+    keyMetadata: readonly Readonly<{
+      kid: SafeId;
+      notBefore: CanonicalUtcTimestamp;
+      notAfter: CanonicalUtcTimestamp;
+      revokedAt: CanonicalUtcTimestamp | null;
+    }>[];
+    signatureAlgorithm: "Ed25519";
+    authorityKeyId: SafeId;
+    manifestDigest: LowercaseSha256;
+    signature: CanonicalBase64Url64;
   }>;
-  keys: readonly Readonly<{
-    keyId: SafeId;
-    algorithm: "Ed25519";
-    publicKey: CanonicalBase64Url32;
-    notBefore: CanonicalUtcTimestamp;
-    notAfter: CanonicalUtcTimestamp;
-    revokedAt: CanonicalUtcTimestamp | null;
-  }>[];
-  signatureAlgorithm: "Ed25519";
-  authorityKeyId: SafeId;
-  manifestDigest: LowercaseSha256;
-  signature: CanonicalBase64Url64;
 }>;
 ```
 
-The raw canonical manifest is at most 256 KiB. `generation`, `maximumReceiptLifetimeSeconds`, and `maximumFutureSkewSeconds` are positive safe integers; the two duration fields may not exceed CAGE's independently configured ceilings. `BoundedString` is non-empty UTF-8 of at most 256 bytes. `SafeId` uses `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Timestamps use RFC 3339 UTC with exactly three fractional-second digits and terminal `Z`. `keys` contains 1 through 128 entries sorted bytewise by unique `keyId`. Each key requires `notBefore < notAfter`; `revokedAt` is null or falls inside that interval. CAGE treats a non-null `revokedAt` as revoked, and otherwise accepts the key only while `notBefore <= now < notAfter`. Future revocation scheduling is not part of this profile. Every key algorithm is exactly `Ed25519`, and every `publicKey` is unpadded canonical base64url encoding of exactly 32 raw Ed25519 public-key bytes. `issuedAt < validUntil`; a manifest is usable only while `issuedAt <= now + maximumFutureSkewSeconds` and `now < validUntil` at a fresh CAGE host time.
+The raw canonical manifest is at most 256 KiB. `generation`, `maximumReceiptLifetimeSeconds`, and `maximumFutureSkewSeconds` are positive safe integers; the two duration fields may not exceed CAGE's independently configured ceilings. `BoundedString` is non-empty UTF-8 of at most 256 bytes. `SafeId` uses `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Timestamps use RFC 3339 UTC with exactly three fractional-second digits and terminal `Z`.
 
-`authorityKeyId` resolves only through CAGE's pinned manifest-authority configuration, provisioned through CAGE's deployment/configuration channel rather than by the sidecar response. That configuration stores the authority public key in the same 32-byte raw, unpadded canonical base64url format.
+`keys` is the RFC 7517 JWK Set member. It contains 1 through 128 public JWKs sorted bytewise by unique `kid`. Each JWK has exactly the six members shown above: the RFC 8037 Ed25519 public-key tuple `kty: "OKP"`, `crv: "Ed25519"`, and `x`; receipt-key selection through `kid`; and the fixed JOSE declarations `use: "sig"` and `alg: "EdDSA"`. `x` is the 43-character unpadded canonical base64url encoding of exactly 32 raw Ed25519 public-key bytes. Private `d`, certificate, URL, symmetric-key, additional operation, and unknown JWK members are forbidden by this closed profile.
 
-`manifestDigest` is the lowercase hexadecimal SHA-256 of RFC 8785 canonical manifest bytes with only `manifestDigest` and `signature` omitted; `signatureAlgorithm` and `authorityKeyId` remain in the digest input. The signature preimage is the exact UTF-8 bytes of `cage-agent-integrity-trust-manifest-v1`, followed by one `0x00` byte, followed by the 32 raw bytes decoded from `manifestDigest`. `signature` is the unpadded canonical base64url encoding of the resulting 64-byte Ed25519 signature (86 characters). CAGE rejects padding, non-canonical encodings, wrong decoded lengths, any other algorithm, or an unknown authority key ID before using a receipt key from the manifest.
+`keyMetadata` contains 1 through 128 entries sorted bytewise by unique `kid`, with exactly the same `kid` set and order as `keys`; missing, extra, duplicate, or reordered metadata fails closed. Each metadata entry requires `notBefore < notAfter`; `revokedAt` is null or falls inside that interval. CAGE treats a non-null `revokedAt` as revoked, and otherwise accepts the corresponding JWK only while `notBefore <= now < notAfter`. Future revocation scheduling is not part of this profile. `issuedAt < validUntil`; a manifest is usable only while `issuedAt <= now + maximumFutureSkewSeconds` and `now < validUntil` at a fresh CAGE host time.
+
+RFC 7517 requires generic JWK Set consumers to ignore unrecognized top-level members. That makes the `keys` array compatible with CAGE's existing JWKS parsing shape, but generic parsing alone is not authorization: Provider 06 must first validate the complete closed object, namespaced extension, authority signature, freshness, generation, receipt profile, and one-to-one key metadata, then admit only the validated `keys` array to key resolution. It must not strip the extension and trust a key merely because a generic JWKS parser accepts it.
+
+The extension's `authorityKeyId` resolves only through CAGE's pinned manifest-authority configuration, provisioned through CAGE's deployment/configuration channel rather than by the sidecar response. That configuration stores the authority public key in the same 32-byte raw, unpadded canonical base64url format.
+
+The extension's `manifestDigest` is the lowercase hexadecimal SHA-256 of the complete RFC 8785 canonical JWK Set after omitting only `manifestDigest` and `signature` from the extension; `keys`, all other extension members, `signatureAlgorithm`, and `authorityKeyId` remain in the digest input. The signature preimage is the exact UTF-8 bytes of `cage-agent-integrity-trust-manifest-v1`, followed by one `0x00` byte, followed by the 32 raw bytes decoded from `manifestDigest`. `signature` is the unpadded canonical base64url encoding of the resulting 64-byte Ed25519 signature (86 characters). CAGE rejects padding, non-canonical encodings, wrong decoded lengths, any other algorithm, an unknown authority key ID, or any `kid` mismatch between `keys`, metadata, and the receipt before using a receipt key from the manifest.
 
 CAGE persists the highest accepted `(generation, manifestDigest)` pair. A lower generation is rollback and is rejected even when signed. An equal generation is accepted only when its digest exactly matches the persisted digest; an equal-generation digest conflict is rejected and cannot replace the cache. Only a strictly greater valid generation may atomically replace the pair and cached manifest. Refresh may replace the cache only after the complete new manifest, authority signature, generation, digest, validity interval, and revocation data validate. If refresh fails, CAGE may use the current cached manifest only until `validUntil`; a missing, expired, rolled-back, conflicting, malformed, or unauthenticated manifest, an unknown receipt `kid`, or a key that is revoked or outside its validity window is a fail-closed non-admitting result with no downstream bytes. This bounds how long cached revocation state may be used and makes refresh failure behavior deterministic.
 

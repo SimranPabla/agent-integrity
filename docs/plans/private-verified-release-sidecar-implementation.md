@@ -393,8 +393,10 @@ git commit -m "feat(sidecar): persist recoverable request phases"
 **Files:**
 - Create: `packages/sidecar/src/config.ts`
 - Create: `packages/sidecar/src/key-registry.ts`
+- Create: `packages/sidecar/src/cage-trust-manifest.ts`
 - Create: `packages/sidecar/tests/config.test.ts`
 - Create: `packages/sidecar/tests/permissions.test.ts`
+- Create: `packages/sidecar/tests/cage-trust-manifest.test.ts`
 
 - [ ] **Step 1: Write failing closed-config tests**
 
@@ -404,24 +406,24 @@ Test required absolute socket and bundle paths plus one sidecar-owned state root
 
 Prove startup rejection for symlinks, wrong Unix owner/group/mode, shared signing key access, mismatched private/public key, invalid metadata, expired/revoked active key, missing historical public keys, and unsafe socket directory. Use injectable identity/stat readers so tests do not require root.
 
-- [ ] **Step 3: Write failing reload and time-selection tests**
+- [ ] **Step 3: Write failing reload, time-selection, and CAGE JWKS export tests**
 
-Prove invalid reload preserves the old snapshot; valid reload atomically swaps HMAC/receipt registries; key selection at an injected current time rejects expired/revoked entries; returned complete public registry/config snapshots are canonical and immutable; and private recovery keys remain addressable by key ID until no prepared transaction references them. Lifecycle cases involving publication of the content-addressed public registry snapshot or an in-flight transaction belong to Task 8.
+Prove invalid reload preserves the old snapshot; valid reload atomically swaps HMAC/receipt registries; key selection at an injected current time rejects expired/revoked entries; returned complete public registry/config snapshots are canonical and immutable; and private recovery keys remain addressable by key ID until no prepared transaction references them. Prove the CAGE export is a canonical RFC 7517 JWK Set whose top-level `keys` array contains exact RFC 8037 Ed25519 public JWKs (`kty`, `crv`, `x`, `kid`, `use`, and `alg` only), is accepted by a fixture implementing CAGE's current `keys`/`OKP`/`Ed25519`/`x`/`kid` parsing contract, contains no private `d`, and carries all lifecycle controls in the single `https://github.com/SimranPabla/agent-integrity/params/jwks/receipt-manifest/v1` extension. Require an exact sorted one-to-one `kid` match between JWKs and `keyMetadata`; verify the manifest digest and authority signature; and reject unknown members, missing/extra/reordered metadata, duplicate `kid`, wrong JOSE values, padded or wrong-length `x`, stale manifests, rollback, invalid validity/revocation ordering, and signature failure. Lifecycle cases involving publication of the content-addressed public registry snapshot or an in-flight transaction belong to Task 8.
 
-- [ ] **Step 4: Implement immutable configuration snapshots**
+- [ ] **Step 4: Implement immutable configuration snapshots and the signed CAGE JWKS export**
 
-Parse from an explicit file only. Deep-freeze the validated snapshot. Expose atomic `loadInitial()` and `reload()`; never expose raw secret bytes through returned configuration, errors, or logging.
+Parse from an explicit file only. Deep-freeze the validated snapshot. Expose atomic `loadInitial()` and `reload()`; never expose raw secret bytes through returned configuration, errors, or logging. `cage-trust-manifest.ts` constructs the exact closed JWK Set from the immutable public registry, canonicalizes and hashes the complete object with only the extension's `manifestDigest` and `signature` omitted, signs the domain-separated digest with the separately configured manifest-authority key, and returns canonical bytes for the out-of-band deployment/configuration channel. It does not add an HTTP endpoint and does not place private key material in the export.
 
 - [ ] **Step 5: Run focused tests**
 
-Run: `npx vitest run packages/sidecar/tests/config.test.ts packages/sidecar/tests/permissions.test.ts && npm run typecheck`
+Run: `npx vitest run packages/sidecar/tests/config.test.ts packages/sidecar/tests/permissions.test.ts packages/sidecar/tests/cage-trust-manifest.test.ts && npm run typecheck`
 
 Expected: all pass.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/sidecar/src/config.ts packages/sidecar/src/key-registry.ts packages/sidecar/tests
+git add packages/sidecar/src/config.ts packages/sidecar/src/key-registry.ts packages/sidecar/src/cage-trust-manifest.ts packages/sidecar/tests
 git commit -m "feat(sidecar): validate identities and key lifecycle"
 ```
 
@@ -699,7 +701,7 @@ Create a detached worktree at `TESTED_CODE_COMMIT`, confirm no `node_modules`/`d
 
 - [ ] **Step 1: Write package and integration documentation**
 
-Document exact guarantee, separate Unix identities, socket/HMAC/signing-key provisioning, evidence bundle ownership and expiry, response contract including `RELEASE_REFUSED`, verdict routing, phase machine, retry rules, key rotation, store generation, health, limits, and explicit non-goals. Define the complete closed CAGE trust-manifest and key-entry schema, generation, freshness, rollback rejection, atomic refresh, cache-expiry behavior, and fail-closed unknown/revoked key handling. Require 1-128 sorted unique key entries, exact 32-byte raw Ed25519 public-key encoding, validity/revocation ordering, bounded profile strings/durations, no unknown fields, and fresh-clock acceptance. Persist the accepted `(generation, manifestDigest)` pair; reject lower generations and equal-generation digest conflicts. Freeze the trust-manifest signature profile as Ed25519 with a pinned authority key ID, a 32-byte raw public key encoded as 43-character unpadded canonical base64url, a domain-separated preimage containing the raw 32-byte manifest digest, and a 64-byte signature encoded as 86-character unpadded canonical base64url; require rejection tests for schema, limit, ordering, algorithm, key-ID, padding, encoding, and decoded-length mismatch in the later CAGE integration PR. State that CAGE runtime integration is a separate PR against the current partner layout. Before admission CAGE must bind the response request ID, require canonical equality of wrapper and signed receipt verification, verify expected issuer/audience/purpose/engine version and trusted policy, enforce receipt and key validity/revocation at a fresh host time, verify the envelope digest and signed receipt, route `RELEASE_REFUSED` as non-admitting while preserving its signed receipt, and dispatch only the exact returned bytes.
+Document exact guarantee, separate Unix identities, socket/HMAC/signing-key provisioning, evidence bundle ownership and expiry, response contract including `RELEASE_REFUSED`, verdict routing, phase machine, retry rules, key rotation, store generation, health, limits, and explicit non-goals. Define the complete closed CAGE trust manifest as an RFC 7517 JWK Set with 1-128 sorted unique RFC 8037 Ed25519 public JWKs using exact members `kty: "OKP"`, `crv: "Ed25519"`, `x`, `kid`, `use: "sig"`, and `alg: "EdDSA"`. Put generation, freshness, receipt profile, sorted one-to-one per-`kid` validity/revocation metadata, authority data, digest, and signature in the single `https://github.com/SimranPabla/agent-integrity/params/jwks/receipt-manifest/v1` top-level extension. State that generic JWKS parsing is compatible but insufficient: Provider 06 must validate the complete closed extension and exact JWK-to-metadata binding before admitting a key. Require exact 32-byte raw Ed25519 public-key encoding, validity/revocation ordering, bounded profile strings/durations, no unknown fields, and fresh-clock acceptance. Persist the accepted `(generation, manifestDigest)` pair; reject lower generations and equal-generation digest conflicts. Freeze the trust-manifest signature profile as Ed25519 with a pinned authority key ID, a 32-byte raw public key encoded as 43-character unpadded canonical base64url, a domain-separated preimage containing the raw 32-byte manifest digest, and a 64-byte signature encoded as 86-character unpadded canonical base64url; require rejection tests for schema, limit, ordering, algorithm, key-ID, padding, encoding, decoded-length, metadata-binding, and signature mismatch in the later CAGE integration PR. State that CAGE runtime integration is a separate PR against the current partner layout. Before admission CAGE must bind the response request ID, require canonical equality of wrapper and signed receipt verification, verify expected issuer/audience/purpose/engine version and trusted policy, enforce receipt and key validity/revocation at a fresh host time, verify the envelope digest and signed receipt, route `RELEASE_REFUSED` as non-admitting while preserving its signed receipt, and dispatch only the exact returned bytes.
 
 - [ ] **Step 2: Write the result document from executed evidence**
 
