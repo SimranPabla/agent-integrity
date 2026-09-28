@@ -1,0 +1,14 @@
+{
+  "name": "@agent-integrity/sidecar",
+  "version": "0.1.0-alpha.2",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@agent-integrity/core": "0.1.0-alpha.2",
+    "@agent-integrity/protocol": "0.1.0-alpha.2",
+    "@agent-integrity/sdk": "0.1.0-alpha.2"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

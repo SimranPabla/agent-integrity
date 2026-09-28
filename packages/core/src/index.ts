@@ -11,6 +11,7 @@ export * from "./claims/evidence.js";
 export * from "./verify.js";
 export * from "./verify-trusted.js";
 export * from "./response/coverage.js";
+export * from "./schema/validate-envelope.js";
 export * from "./receipts/create-receipt.js";
 export * from "./receipts/recheck-receipt.js";
 export * from "./receipts/file-receipt-store.js";
