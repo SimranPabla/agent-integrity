@@ -240,6 +240,7 @@ See [CLI usage in the Integration Guide](docs/INTEGRATION_GUIDE.md#using-the-cli
 - [Safe baseline policy](docs/SAFE_BASELINE_POLICY.md)
 - [Threat model](docs/THREAT_MODEL.md)
 - [Limitations](docs/LIMITATIONS.md)
+- [Sanitized runtime evidence findings and hardening requirements](docs/RUNTIME_EVIDENCE_FINDINGS.md)
 - [Examples](examples/README.md)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
