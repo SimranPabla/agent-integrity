@@ -2,12 +2,12 @@
 
 ## Tested in 0.1.0-alpha.2
 
-- Node.js 22 on Linux
-- npm workspaces and npm 10+
+- Node.js 22 and 24 on Linux
+- npm workspaces with npm 10 and npm 12
 - TypeScript 5.8
 - Direct TypeScript/JavaScript SDK use
 - JSON stdin/stdout CLI use
-- Python 3 standard-library subprocess example on Linux
+- Python 3 standard-library subprocess example and fail-closed unit tests on Linux
 - Local files on a single host filesystem
 - Ed25519 keys supported by Node.js `crypto`
 

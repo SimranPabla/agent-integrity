@@ -33,7 +33,45 @@ jobs:
         run: npm audit --audit-level=high
       - name: Run full verification
         run: npm run verify
+      - name: Compile and run Python CLI example
+        run: |
+          python3 -m py_compile examples/python-cli/verify_response.py
+          python3 -m unittest discover -s examples/python-cli -p 'test_*.py'
+          python3 examples/python-cli/verify_response.py
       - name: Scan public release payload
         run: npm run release:check
+      - name: Pack and clean-install public payloads
+        run: npm run pack:check
+
+  node-24-npm-12-compatibility:
+    name: node-24-npm-12-compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Use npm 12.0.2
+        run: npm install --global --ignore-scripts npm@12.0.2
+      - name: Record runtime versions
+        run: |
+          node --version
+          npm --version
+          python3 --version
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run full verification
+        run: npm run verify
+      - name: Compile and run Python CLI example
+        run: |
+          python3 -m py_compile examples/python-cli/verify_response.py
+          python3 -m unittest discover -s examples/python-cli -p 'test_*.py'
+          python3 examples/python-cli/verify_response.py
       - name: Pack and clean-install public payloads
         run: npm run pack:check

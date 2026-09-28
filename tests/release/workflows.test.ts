@@ -11,6 +11,12 @@ describe("GitHub release governance", () => {
     for (const command of ["npm ci", "npm audit --audit-level=high", "npm run verify", "npm run release:check", "npm run pack:check"]) {
       expect(workflow).toContain(command);
     }
+    expect(workflow).toContain("name: node-24-npm-12-compatibility");
+    expect(workflow).toContain("node-version: 24");
+    expect(workflow).toContain("npm install --global --ignore-scripts npm@12.0.2");
+    expect(workflow).toContain("python3 -m py_compile examples/python-cli/verify_response.py");
+    expect(workflow).toContain("python3 -m unittest discover -s examples/python-cli -p 'test_*.py'");
+    expect(workflow).toContain("python3 examples/python-cli/verify_response.py");
     expect(workflow).toMatch(/actions\/checkout@[0-9a-f]{40}/u);
     expect(workflow).toMatch(/actions\/setup-node@[0-9a-f]{40}/u);
   });

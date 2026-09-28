@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseNpmPackManifest } from "./npm-pack-manifest.mjs";
 
 const packages = ["protocol", "core", "sdk", "cli"];
 const workspace = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -30,7 +31,7 @@ try {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const [manifest] = JSON.parse(output);
+    const manifest = parseNpmPackManifest(output);
     assertPayload(name, manifest);
     tarballs.push(join(staging, manifest.filename));
     console.log(`${manifest.name}: ${manifest.files.length} files, ${manifest.size} bytes`);
