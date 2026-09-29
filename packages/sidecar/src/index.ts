@@ -4,3 +4,7 @@ export * from "./durable-json.js";
 export * from "./nonce-store.js";
 export * from "./path-boundary.js";
 export * from "./bundle.js";
+export * from "./request-state.js";
+export * from "./private-object-store.js";
+export * from "./state-coordinator.js";
+export * from "./request-store.js";

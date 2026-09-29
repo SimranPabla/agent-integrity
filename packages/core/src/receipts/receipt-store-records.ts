@@ -48,7 +48,7 @@ function iso(value: unknown): value is string {
   return boundedString(value, 64) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 }
 
-function validateReceipt(value: unknown): AlphaIntegrityReceipt {
+export function parseAlphaIntegrityReceipt(value: unknown): AlphaIntegrityReceipt {
   const receipt = record(value, "embedded receipt");
   exact(receipt, ["audience", "createdAt", "engineVersion", "envelopeDigest", "expiresAt", "issuer", "nonce", "policyDigest", "protocolVersion", "purpose", "receiptDigest", "receiptVersion", "runId", "signature", "verification"], "embedded receipt");
   if (receipt.protocolVersion !== PROTOCOL_VERSION || receipt.receiptVersion !== "2-alpha") throw new Error("invalid embedded receipt");
@@ -83,7 +83,7 @@ export function parseStoredReceiptRecord(value: unknown, kind: ReceiptRecordKind
   exact(stored, [...base, ...extra], `${kind} receipt store record`);
   if (stored.version !== 3 || !boundedString(stored.runId, 128) || !SAFE_IDENTIFIER.test(stored.runId as string) || !boundedString(stored.nonce, 256) || !SHA256.test(String(stored.receiptDigest)) || !Number.isSafeInteger(stored.quotaSlot) || (stored.quotaSlot as number) < -1 || !boundedString(stored.transactionId, 128) || !SAFE_IDENTIFIER.test(stored.transactionId as string)) throw new Error(`invalid ${kind} receipt store record`);
   if (kind === "issued" || kind === "consumed" || kind === "closed") {
-    const receipt = validateReceipt(stored.receipt);
+    const receipt = parseAlphaIntegrityReceipt(stored.receipt);
     if (receipt.receiptDigest !== stored.receiptDigest || receipt.runId !== stored.runId || receipt.nonce !== stored.nonce) throw new Error(`${kind} receipt store binding mismatch`);
   }
   if (kind === "consumed" && !iso(stored.consumedAt)) throw new Error("invalid consumed receipt store record");

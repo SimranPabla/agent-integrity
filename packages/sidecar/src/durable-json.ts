@@ -187,6 +187,15 @@ export class DurableJsonDirectory {
     return names.sort();
   }
 
+  async remove(relativePath: string): Promise<void> {
+    await this.assertIdentity();
+    const path = this.resolve(relativePath);
+    await this.#validateExistingNode(path);
+    await rm(path);
+    await this.#syncDirectory(dirname(path));
+    await this.assertIdentity();
+  }
+
   async #validateExistingNode(path: string): Promise<void> {
     const info = await lstat(path);
     if (info.isSymbolicLink()) throw new Error("durable record symlink is forbidden");

@@ -35,6 +35,14 @@ const DEFAULT_MAX_STATE_BYTES = 64 * 1024;
 const DEFAULT_MAX_DIRECTORY_BYTES = 4096;
 const DEFAULT_MAX_RECORDS = 10_000;
 
+export const RECEIPT_STORE_LOCK_AUTHORIZER = Symbol.for("agent-integrity.receipt-store-lock-authorizer");
+export interface ReceiptStoreLockOwnership {
+  readonly ownerToken: string;
+  readonly storeGeneration: string;
+  readonly rootIdentityDigest: string;
+  readonly [RECEIPT_STORE_LOCK_AUTHORIZER]: () => void;
+}
+
 export function isUnsupportedDirectoryOpenError(error: unknown): boolean {
   return ["EPERM", "EACCES", "EISDIR"].includes((error as NodeJS.ErrnoException)?.code ?? "");
 }
@@ -47,6 +55,8 @@ export interface FileReceiptStoreOptions {
   readonly maxStateBytes?: number;
   readonly maxDirectoryBytes?: number;
   readonly maxRecords?: number;
+  /** Sidecar mode: bind every nested store lock to the state-root lease owner. */
+  readonly lockOwnership?: ReceiptStoreLockOwnership;
   /** Test-only deterministic crash injection. */
   readonly faultInjector?: (point: string) => void | Promise<void>;
 }
@@ -63,6 +73,10 @@ export class FileReceiptStore {
     const maxRecords = options.maxRecords ?? DEFAULT_MAX_RECORDS;
     if (!Number.isSafeInteger(maxRecords) || maxRecords < 1 || maxRecords > 1_000_000) throw new Error("maxRecords must be a safe integer between 1 and 1000000");
     if (typeof directory !== "string" || directory.length === 0 || Buffer.byteLength(directory, "utf8") > maxDirectoryBytes) throw new Error("receipt store directory is invalid or exceeds its configured limit");
+    if (options.lockOwnership !== undefined) {
+      const ownership = options.lockOwnership;
+      if (!SAFE_IDENTIFIER.test(ownership.ownerToken) || !SAFE_IDENTIFIER.test(ownership.storeGeneration) || !SHA256.test(ownership.rootIdentityDigest) || Object.keys(ownership).sort().join(",") !== "ownerToken,rootIdentityDigest,storeGeneration" || typeof ownership[RECEIPT_STORE_LOCK_AUTHORIZER] !== "function") throw new Error("receipt store lock ownership is invalid");
+    }
     this.#maxStateBytes = options.maxStateBytes ?? DEFAULT_MAX_STATE_BYTES;
     this.#maxRecords = maxRecords;
   }
@@ -165,16 +179,25 @@ export class FileReceiptStore {
   }
 
   private async acquireLock(): Promise<string> {
+    this.options.lockOwnership?.[RECEIPT_STORE_LOCK_AUTHORIZER]();
     await this.initialize();
-    const ownerToken = randomUUID();
-    await this.publishJson(join(this.directory, ".store-lock.json"), { version: 1, ownerToken }, "lock", "receipt store is locked; never steal a live or abandoned lock");
+    const ownerToken = this.options.lockOwnership?.ownerToken ?? randomUUID();
+    const lock = this.options.lockOwnership === undefined
+      ? { version: 1, ownerToken }
+      : { version: 2, ...this.options.lockOwnership };
+    await this.publishJson(join(this.directory, ".store-lock.json"), lock, "lock", "receipt store is locked; never steal a live or abandoned lock");
     return ownerToken;
   }
 
   private async releaseLock(ownerToken: string): Promise<void> {
     const lockPath = join(this.directory, ".store-lock.json");
     const lock = await this.readJson(lockPath);
-    if (Object.keys(lock).sort().join(",") !== "ownerToken,version" || lock.version !== 1 || typeof lock.ownerToken !== "string" || !SAFE_IDENTIFIER.test(lock.ownerToken)) throw new Error("receipt store lock is malformed");
+    if (this.options.lockOwnership === undefined) {
+      if (Object.keys(lock).sort().join(",") !== "ownerToken,version" || lock.version !== 1 || typeof lock.ownerToken !== "string" || !SAFE_IDENTIFIER.test(lock.ownerToken)) throw new Error("receipt store lock is malformed");
+    } else {
+      const expected = this.options.lockOwnership;
+      if (Object.keys(lock).sort().join(",") !== "ownerToken,rootIdentityDigest,storeGeneration,version" || lock.version !== 2 || lock.ownerToken !== expected.ownerToken || lock.storeGeneration !== expected.storeGeneration || lock.rootIdentityDigest !== expected.rootIdentityDigest) throw new Error("receipt store nested lock ownership changed");
+    }
     if (lock.ownerToken !== ownerToken) throw new Error("receipt store lock ownership changed");
     await rm(lockPath);
     await this.syncDirectory(this.directory);
