@@ -4,7 +4,7 @@
 
 This package is an implementation in progress. It is not yet a deployable service and the pull request must remain in draft until the remaining implementation tasks and final adversarial review are complete.
 
-The current tree implements Tasks 1–5 of the approved plan in `docs/plans/private-verified-release-sidecar-implementation.md`.
+The current tree implements Tasks 1–6 of the approved plan in `docs/plans/private-verified-release-sidecar-implementation.md`.
 
 ## Implemented components
 
@@ -47,6 +47,20 @@ The current tree implements Tasks 1–5 of the approved plan in `docs/plans/priv
 - Receipt-store nested locks bound to the coordinator owner token, store generation, and root identity; stale capabilities cannot mutate the receipt store.
 - Bounded record capacity, strict state permissions, create-once publication, directory durability, and reference-aware request-object cleanup.
 
+### 6. Configuration, Unix identities, and key lifecycle
+
+- Explicit absolute configuration file only; closed nested fields, fixed state children, explicit store generation, bounded limits, and deeply frozen secret-redacted snapshots.
+- Exact Unix identity/group, file type/mode/link, canonical path/ancestor, root-owned socket-parent, and protected-file identity checks. Stat, path resolution, and process identity readers are injectable for non-root tests; production defaults use the host OS.
+- Owner-only readable configuration permits `0400` or `0600`; group/other access and special bits are forbidden. Secrets remain exact `0400`.
+- Client-group membership is resolved from both primary passwd GIDs and supplementary group member names using NSS, not `/etc` files. Production requires trusted `/usr/bin/getent` and complete enumerable NSS passwd/group databases. Each fixed, shell-free query has a 5-second timeout, 4 MiB output bound, and 65,536-record ceiling. Enumeration errors, malformed/ambiguous records, unresolved names, missing groups, and any set other than the two distinct configured CAGE/sidecar UIDs fail closed. Non-enumerating NSS backends are unsupported; operators must establish complete enumeration rather than treating a partial NSS view as proof. Membership is checked on every load/reload; the host administrator remains trusted against account-database changes between checks. The group resolver is injectable for non-root tests.
+- Whole-candidate validation before atomic HMAC/receipt registry replacement; failed or concurrent reloads cannot replace the active snapshot. Deployment identities, roots, and store generation cannot change online. A complete unsigned-manifest digest shared with the exporter/parser enforces a strictly increased generation for signed-content changes (and authority public-key rebinding); identical manifests and nonmanifest-only changes may retain the generation.
+- Sorted historical public receipt keys remain available; key IDs cannot be rebound. Active signing keys are checked against an injected fresh clock; expired/revoked active keys fail closed. Referenced recovery private keys remain available by key ID until their retain handles are released.
+- Separately signed, public-only canonical CAGE JWKS export for the out-of-band configuration channel. No network endpoint is added.
+
+The JWKS contains exact public Ed25519 JWK members `kty`, `crv`, `x`, `kid`, `use`, and `alg`. All lifecycle controls reside in the single `https://github.com/SimranPabla/agent-integrity/params/jwks/receipt-manifest/v1` extension. Its digest covers the complete canonical set with only `manifestDigest` and `signature` omitted. The pinned authority signs UTF-8 `cage-agent-integrity-trust-manifest-v1`, one NUL byte, and the raw 32-byte digest. Public keys and signatures use canonical unpadded base64url (32 and 64 decoded bytes).
+
+Generic JWKS parsing is compatible but is **not** sufficient admission authority. The closed parser additionally validates sorted one-to-one key metadata, profile ceilings, signature, fresh time, and the accepted generation/digest pair. Persisting that pair, preparing transactions, publishing registry snapshots, and wiring recovery-key references into transactions remain later-task integration work. Recovery retain handles currently protect keys in process memory only; operators must keep the configured key files across restarts until durable prepared transactions are resolved.
+
 ## Security guarantees established so far
 
 - State is rejected when it is malformed, oversized, ambiguously branched, unexpectedly replaced, or published with conflicting ownership.
@@ -61,11 +75,11 @@ These are implementation and test guarantees only. They do not establish product
 
 ## Verification
 
-Focused Task 5 verification:
+Focused configuration/key lifecycle verification:
 
 ```bash
 npm run typecheck
-npx vitest run packages/sidecar/tests/request-store.test.ts
+npx vitest run packages/sidecar/tests/config.test.ts packages/sidecar/tests/permissions.test.ts packages/sidecar/tests/client-group.test.ts packages/sidecar/tests/cage-trust-manifest.test.ts
 ```
 
 Repository verification:
@@ -82,8 +96,6 @@ GitHub Actions independently runs the required Node 22 and Node 24/npm 12 jobs f
 
 The following approved-plan areas are not yet implemented:
 
-- closed runtime configuration, permission checks, and signing-key lifecycle;
-- CAGE JWKS trust-manifest export and reload behavior;
 - exact CAGE subprocess supervision and trusted verification orchestration;
 - Unix-socket service runtime, bounded transaction queue, and delivery recovery;
 - release-output boundary integration and complete crash reconciliation;

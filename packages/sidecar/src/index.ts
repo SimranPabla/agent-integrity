@@ -8,3 +8,6 @@ export * from "./request-state.js";
 export * from "./private-object-store.js";
 export * from "./state-coordinator.js";
 export * from "./request-store.js";
+export * from "./config.js";
+export * from "./key-registry.js";
+export * from "./cage-trust-manifest.js";
