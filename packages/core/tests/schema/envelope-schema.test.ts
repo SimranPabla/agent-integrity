@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { verifyEnvelope } from "../../src/index.js";
+import { assertIntegrityEnvelope, verifyEnvelope } from "../../src/index.js";
 import { readFile } from "node:fs/promises";
 import { validEnvelope as completeEnvelope } from "../support/valid-envelope.js";
 import Ajv2020 from "ajv/dist/2020.js";
@@ -34,6 +34,11 @@ function validEnvelope(): Record<string, unknown> {
 }
 
 describe("strict envelope runtime schema", () => {
+  it("exports the throwing structural envelope assertion", () => {
+    expect(() => assertIntegrityEnvelope(completeEnvelope())).not.toThrow();
+    expect(() => assertIntegrityEnvelope({ protocolVersion: "1-alpha" })).toThrow(/exactly/u);
+  });
+
   it("blocks unknown fields", () => {
     const envelope = validEnvelope();
     envelope.untrustedOverride = true;

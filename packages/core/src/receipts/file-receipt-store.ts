@@ -1,19 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
-import { link, mkdir, open, opendir, rename, rm, stat } from "node:fs/promises";
+import { link, lstat, mkdir, open, opendir, readdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { AlphaIntegrityReceipt } from "@agent-integrity/protocol";
-import { sha256Canonical } from "../hash.js";
-
-interface StoredReceipt {
-  readonly version: 3;
-  readonly runId: string;
-  readonly nonce: string;
-  readonly receiptDigest: string;
-  readonly quotaSlot: number;
-  readonly transactionId: string;
-  readonly receipt?: AlphaIntegrityReceipt;
-  readonly cleanupPaths?: readonly string[];
-}
+import { canonicalJson } from "../canonical-json.js";
+import { ReceiptOutputBoundary } from "./receipt-output-boundary.js";
+import {
+  consumedView,
+  freezeValidated,
+  parseStoredReceiptRecord,
+  type ConsumedReceiptRecord,
+  type ReceiptRecordKind,
+  type StoredReceiptRecord,
+} from "./receipt-store-records.js";
 
 class DuplicateStoreRecordError extends Error {}
 
@@ -31,9 +29,19 @@ class QuotaReservationError extends Error {
 }
 
 const SHA256 = /^[a-f0-9]{64}$/u;
+const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const REASON_CODE = /^[A-Z][A-Z0-9_]{0,127}$/u;
 const DEFAULT_MAX_STATE_BYTES = 64 * 1024;
 const DEFAULT_MAX_DIRECTORY_BYTES = 4096;
 const DEFAULT_MAX_RECORDS = 10_000;
+
+export const RECEIPT_STORE_LOCK_AUTHORIZER = Symbol.for("agent-integrity.receipt-store-lock-authorizer");
+export interface ReceiptStoreLockOwnership {
+  readonly ownerToken: string;
+  readonly storeGeneration: string;
+  readonly rootIdentityDigest: string;
+  readonly [RECEIPT_STORE_LOCK_AUTHORIZER]: () => void;
+}
 
 export function isUnsupportedDirectoryOpenError(error: unknown): boolean {
   return ["EPERM", "EACCES", "EISDIR"].includes((error as NodeJS.ErrnoException)?.code ?? "");
@@ -47,6 +55,8 @@ export interface FileReceiptStoreOptions {
   readonly maxStateBytes?: number;
   readonly maxDirectoryBytes?: number;
   readonly maxRecords?: number;
+  /** Sidecar mode: bind every nested store lock to the state-root lease owner. */
+  readonly lockOwnership?: ReceiptStoreLockOwnership;
   /** Test-only deterministic crash injection. */
   readonly faultInjector?: (point: string) => void | Promise<void>;
 }
@@ -63,18 +73,22 @@ export class FileReceiptStore {
     const maxRecords = options.maxRecords ?? DEFAULT_MAX_RECORDS;
     if (!Number.isSafeInteger(maxRecords) || maxRecords < 1 || maxRecords > 1_000_000) throw new Error("maxRecords must be a safe integer between 1 and 1000000");
     if (typeof directory !== "string" || directory.length === 0 || Buffer.byteLength(directory, "utf8") > maxDirectoryBytes) throw new Error("receipt store directory is invalid or exceeds its configured limit");
+    if (options.lockOwnership !== undefined) {
+      const ownership = options.lockOwnership;
+      if (!SAFE_IDENTIFIER.test(ownership.ownerToken) || !SAFE_IDENTIFIER.test(ownership.storeGeneration) || !SHA256.test(ownership.rootIdentityDigest) || Object.keys(ownership).sort().join(",") !== "ownerToken,rootIdentityDigest,storeGeneration" || typeof ownership[RECEIPT_STORE_LOCK_AUTHORIZER] !== "function") throw new Error("receipt store lock ownership is invalid");
+    }
     this.#maxStateBytes = options.maxStateBytes ?? DEFAULT_MAX_STATE_BYTES;
     this.#maxRecords = maxRecords;
   }
 
-  private path(kind: "runs" | "nonces" | "issued" | "consumed" | "quota" | "transactions" | "recovery" | "cleanup", value: string): string {
-    const raw = kind === "issued" || kind === "consumed" ? value : markerName(value);
+  private path(kind: "runs" | "nonces" | "issued" | "consumed" | "closed" | "quota" | "transactions" | "recovery" | "cleanup", value: string): string {
+    const raw = kind === "issued" || kind === "consumed" || kind === "closed" ? value : markerName(value);
     return join(this.directory, kind, `${raw}.json`);
   }
 
   private async initialize(): Promise<void> {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await Promise.all(["runs", "nonces", "issued", "consumed", "quota", "transactions", "recovery", "cleanup", ".staging"].map((name) => mkdir(join(this.directory, name), { recursive: true, mode: 0o700 })));
+    await Promise.all(["runs", "nonces", "issued", "consumed", "closed", "quota", "transactions", "recovery", "cleanup", ".staging"].map((name) => mkdir(join(this.directory, name), { recursive: true, mode: 0o700 })));
   }
 
   private async syncDirectory(path: string): Promise<void> {
@@ -132,39 +146,58 @@ export class FileReceiptStore {
     });
   }
 
-  private async readRecord(path: string): Promise<StoredReceipt> {
+  private async readRecord(path: string, kind: ReceiptRecordKind): Promise<StoredReceiptRecord> {
+    const before = await lstat(path);
+    if (before.isSymbolicLink() || !before.isFile() || before.nlink !== 1) throw new Error("invalid receipt store state file");
     const handle = await open(path, "r");
     try {
       const info = await handle.stat();
+      if (info.dev !== before.dev || info.ino !== before.ino || info.nlink !== 1) throw new Error("receipt store state identity changed");
       if (info.size > this.#maxStateBytes) throw new Error("receipt store state exceeds configured limit");
       const buffer = Buffer.alloc(this.#maxStateBytes + 1);
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
       if (bytesRead > this.#maxStateBytes) throw new Error("receipt store state exceeds configured limit");
-      const value = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8")) as Partial<StoredReceipt>;
-      if (value.version !== 3 || typeof value.runId !== "string" || typeof value.nonce !== "string" || !SHA256.test(value.receiptDigest ?? "") || !Number.isSafeInteger(value.quotaSlot) || typeof value.transactionId !== "string") throw new Error("invalid receipt store state");
-      return value as StoredReceipt;
+      return parseStoredReceiptRecord(JSON.parse(buffer.subarray(0, bytesRead).toString("utf8")), kind);
     } finally { await handle.close(); }
   }
 
   private async readJson(path: string): Promise<Record<string, unknown>> {
+    const before = await lstat(path);
+    if (before.isSymbolicLink() || !before.isFile() || before.nlink !== 1) throw new Error("invalid receipt store state file");
     const handle = await open(path, "r");
     try {
       const info = await handle.stat();
+      if (info.dev !== before.dev || info.ino !== before.ino || info.nlink !== 1) throw new Error("receipt store state identity changed");
       if (info.size > this.#maxStateBytes) throw new Error("receipt store state exceeds configured limit");
-      return JSON.parse(await handle.readFile("utf8")) as Record<string, unknown>;
+      const buffer = Buffer.alloc(this.#maxStateBytes + 1);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      if (bytesRead > this.#maxStateBytes) throw new Error("receipt store state exceeds configured limit");
+      const value = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8")) as unknown;
+      if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new Error("invalid receipt store metadata");
+      return value as Record<string, unknown>;
     } finally { await handle.close(); }
   }
 
   private async acquireLock(): Promise<string> {
+    this.options.lockOwnership?.[RECEIPT_STORE_LOCK_AUTHORIZER]();
     await this.initialize();
-    const ownerToken = randomUUID();
-    await this.publishJson(join(this.directory, ".store-lock.json"), { version: 1, ownerToken }, "lock", "receipt store is locked; never steal a live or abandoned lock");
+    const ownerToken = this.options.lockOwnership?.ownerToken ?? randomUUID();
+    const lock = this.options.lockOwnership === undefined
+      ? { version: 1, ownerToken }
+      : { version: 2, ...this.options.lockOwnership };
+    await this.publishJson(join(this.directory, ".store-lock.json"), lock, "lock", "receipt store is locked; never steal a live or abandoned lock");
     return ownerToken;
   }
 
   private async releaseLock(ownerToken: string): Promise<void> {
     const lockPath = join(this.directory, ".store-lock.json");
     const lock = await this.readJson(lockPath);
+    if (this.options.lockOwnership === undefined) {
+      if (Object.keys(lock).sort().join(",") !== "ownerToken,version" || lock.version !== 1 || typeof lock.ownerToken !== "string" || !SAFE_IDENTIFIER.test(lock.ownerToken)) throw new Error("receipt store lock is malformed");
+    } else {
+      const expected = this.options.lockOwnership;
+      if (Object.keys(lock).sort().join(",") !== "ownerToken,rootIdentityDigest,storeGeneration,version" || lock.version !== 2 || lock.ownerToken !== expected.ownerToken || lock.storeGeneration !== expected.storeGeneration || lock.rootIdentityDigest !== expected.rootIdentityDigest) throw new Error("receipt store nested lock ownership changed");
+    }
     if (lock.ownerToken !== ownerToken) throw new Error("receipt store lock ownership changed");
     await rm(lockPath);
     await this.syncDirectory(this.directory);
@@ -183,12 +216,12 @@ export class FileReceiptStore {
     await this.releaseLock(options.ownerToken);
   }
 
-  private record(receipt: AlphaIntegrityReceipt, quotaSlot: number, transactionId: string): StoredReceipt {
+  private record(receipt: AlphaIntegrityReceipt, quotaSlot: number, transactionId: string): StoredReceiptRecord {
     if (!SHA256.test(receipt.receiptDigest)) throw new Error("receipt digest is invalid");
     return { version: 3, runId: receipt.runId, nonce: receipt.nonce, receiptDigest: receipt.receiptDigest, quotaSlot, transactionId };
   }
 
-  private async reserveQuota(receipt: AlphaIntegrityReceipt, transactionId: string): Promise<StoredReceipt> {
+  private async reserveQuota(receipt: AlphaIntegrityReceipt, transactionId: string): Promise<StoredReceiptRecord> {
     const start = Number.parseInt(receipt.receiptDigest.slice(0, 8), 16) % this.#maxRecords;
     for (let offset = 0; offset < this.#maxRecords; offset += 1) {
       const slot = (start + offset) % this.#maxRecords;
@@ -207,26 +240,34 @@ export class FileReceiptStore {
     throw new QuotaReservationError(`receipt store has reached its ${this.#maxRecords} record limit`, "not-reserved");
   }
 
-  private async quotaFor(transactionId: string): Promise<StoredReceipt | undefined> {
+  private async quotaFor(transactionId: string): Promise<StoredReceiptRecord | undefined> {
     for (let slot = 0; slot < this.#maxRecords; slot += 1) {
-      try { const record = await this.readRecord(this.path("quota", String(slot))); if (record.transactionId === transactionId) return record; }
+      try { const record = await this.readRecord(this.path("quota", String(slot)), "quota"); if (record.transactionId === transactionId) return record; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
     return undefined;
   }
 
-  private async cleanupOwned(record: StoredReceipt, paths: readonly string[]): Promise<void> {
+  private async cleanupOwned(record: StoredReceiptRecord, paths: readonly string[]): Promise<void> {
     const journalPath = this.path("cleanup", record.receiptDigest);
-    const journal = { ...record, cleanupPaths: paths };
+    const journal = {
+      version: record.version,
+      runId: record.runId,
+      nonce: record.nonce,
+      receiptDigest: record.receiptDigest,
+      quotaSlot: record.quotaSlot,
+      transactionId: record.transactionId,
+      cleanupPaths: paths,
+    };
     try { await this.publishJson(journalPath, journal, "cleanup-journal", "cleanup journal exists"); }
     catch (error) {
       if (!(error instanceof DuplicateStoreRecordError)) throw error;
-      const existing = await this.readRecord(journalPath);
+      const existing = await this.readRecord(journalPath, "cleanup");
       if (existing.transactionId !== record.transactionId) throw new Error("cleanup journal ownership mismatch");
     }
     for (const path of paths) {
       try {
-        const actual = await this.readRecord(path);
+        const actual = await this.readRecord(path, path.includes("/issued/") ? "issued" : path.includes("/consumed/") ? "consumed" : path.includes("/closed/") ? "closed" : path.includes("/quota/") ? "quota" : path.includes("/runs/") ? "run" : path.includes("/nonces/") ? "nonce" : "transaction");
         await this.options.faultInjector?.("cleanup:after-ownership-read");
         if (actual.transactionId !== record.transactionId || actual.receiptDigest !== record.receiptDigest) throw new Error("cleanup ownership mismatch");
         await rm(path);
@@ -238,13 +279,15 @@ export class FileReceiptStore {
     await this.syncDirectory(dirname(journalPath));
   }
 
-  async issue(receipt: AlphaIntegrityReceipt): Promise<void> {
+  async issue(receipt: AlphaIntegrityReceipt, options: { readonly transactionId: string }): Promise<void> {
+    if (options === null || typeof options !== "object" || !SAFE_IDENTIFIER.test(options.transactionId)) throw new Error("a safe caller-supplied transactionId is required");
+    parseStoredReceiptRecord({ ...this.record(receipt, -1, options.transactionId), receipt }, "issued");
     return this.withLock(async () => {
-      const transactionId = randomUUID();
+      const transactionId = options.transactionId;
       const intent = this.record(receipt, -1, transactionId);
       const transactionPath = this.path("transactions", receipt.receiptDigest);
       await this.publishJson(transactionPath, intent, "transaction", "issuance transaction already exists");
-      let record: StoredReceipt;
+      let record: StoredReceiptRecord;
       try {
         record = await this.reserveQuota(receipt, transactionId);
       } catch (error) {
@@ -269,7 +312,7 @@ export class FileReceiptStore {
 
   async rollbackIssue(receiptDigest: string): Promise<void> {
     return this.withLock(async () => {
-      const issued = await this.readRecord(this.path("issued", receiptDigest));
+      const issued = await this.readRecord(this.path("issued", receiptDigest), "issued");
       try { await stat(this.path("consumed", receiptDigest)); throw new Error("cannot roll back a consumed receipt"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       await this.cleanupOwned(issued, [this.path("issued", receiptDigest), this.path("nonces", issued.nonce), this.path("runs", issued.runId), this.path("transactions", receiptDigest), this.path("quota", String(issued.quotaSlot))]);
@@ -278,7 +321,7 @@ export class FileReceiptStore {
 
   async reconcileCleanup(receiptDigest: string): Promise<void> {
     return this.withLock(async () => {
-      const journal = await this.readRecord(this.path("cleanup", receiptDigest));
+      const journal = await this.readRecord(this.path("cleanup", receiptDigest), "cleanup");
       if (!Array.isArray(journal.cleanupPaths)) throw new Error("cleanup journal is malformed");
       await this.cleanupOwned(journal, journal.cleanupPaths);
     });
@@ -287,8 +330,9 @@ export class FileReceiptStore {
   async recoverInterruptedIssue(receipt: AlphaIntegrityReceipt, options: { readonly offlineExclusive: true; readonly transactionId: string }): Promise<void> {
     if (options?.offlineExclusive !== true || typeof options.transactionId !== "string") throw new Error("offlineExclusive recovery and transactionId are required");
     return this.withLock(async () => {
-      const intent = await this.readRecord(this.path("transactions", receipt.receiptDigest));
+      const intent = await this.readRecord(this.path("transactions", receipt.receiptDigest), "transaction");
       if (intent.transactionId !== options.transactionId) throw new Error("recovery transaction ownership mismatch");
+      parseStoredReceiptRecord({ ...intent, receipt }, "issued");
       try { await stat(this.path("issued", receipt.receiptDigest)); throw new Error("cannot recover a completed issuance"); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
       const quota = await this.quotaFor(options.transactionId);
@@ -298,25 +342,101 @@ export class FileReceiptStore {
     });
   }
 
-  async completeReceiptFile(receiptDigest: string, outputPath: string): Promise<AlphaIntegrityReceipt> {
+  async completeReceiptFile(receiptDigest: string, output: ReceiptOutputBoundary, safeRelativeName: string): Promise<AlphaIntegrityReceipt> {
     return this.withLock(async () => {
-      const record = await this.readRecord(this.path("issued", receiptDigest));
+      if (!(output instanceof ReceiptOutputBoundary)) throw new Error("receipt output boundary is required");
+      const record = await this.readRecord(this.path("issued", receiptDigest), "issued");
       const receipt = record.receipt;
-      if (receipt === undefined || receipt.receiptDigest !== receiptDigest) throw new Error("issued receipt payload is missing or mismatched");
-      const { receiptDigest: _digest, ...signed } = receipt;
-      if (sha256Canonical(signed) !== receiptDigest) throw new Error("issued receipt payload failed its digest check");
-      await mkdir(dirname(outputPath), { recursive: true });
-      await this.publishJson(outputPath, receipt, "receipt-output", `receipt already exists: ${outputPath}`, dirname(outputPath));
-      return receipt;
+      if (receipt === undefined) throw new Error("issued receipt payload is missing or mismatched");
+      const bytes = Buffer.from(`${canonicalJson(receipt)}\n`, "utf8");
+      if (bytes.byteLength > this.#maxStateBytes) throw new Error("receipt output exceeds configured limit");
+      await output.publishEquivalent(safeRelativeName, bytes);
+      await this.options.faultInjector?.("receipt-output:after-publish");
+      return freezeValidated(structuredClone(receipt));
     });
   }
 
   async consume(receipt: AlphaIntegrityReceipt, consumedAt: Date): Promise<void> {
     return this.withLock(async () => {
       if (!(consumedAt instanceof Date) || !Number.isFinite(consumedAt.getTime())) throw new Error("consumedAt must be a valid Date");
-      const issued = await this.readRecord(this.path("issued", receipt.receiptDigest));
+      const issued = await this.readRecord(this.path("issued", receipt.receiptDigest), "issued");
       if (issued.runId !== receipt.runId || issued.nonce !== receipt.nonce) throw new Error("receipt registry binding mismatch");
+      if (issued.receipt === undefined || canonicalJson(issued.receipt) !== canonicalJson(receipt)) throw new Error("receipt registry payload mismatch");
+      try {
+        await this.readRecord(this.path("closed", receipt.receiptDigest), "closed");
+        throw new Error("cannot consume a closed receipt");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
       await this.publishJson(this.path("consumed", receipt.receiptDigest), { ...issued, consumedAt: consumedAt.toISOString() }, "consumed", "receipt has already been consumed");
+    });
+  }
+
+  async closeIssuedReceipt(receiptDigest: string, options: { readonly transactionId: string; readonly closedAt: Date; readonly reasonCode: string }): Promise<void> {
+    if (!SHA256.test(receiptDigest) || !SAFE_IDENTIFIER.test(options?.transactionId ?? "") || !(options.closedAt instanceof Date) || !Number.isFinite(options.closedAt.getTime()) || !REASON_CODE.test(options.reasonCode)) throw new Error("invalid receipt close request");
+    return this.withLock(async () => {
+      const issued = await this.readRecord(this.path("issued", receiptDigest), "issued");
+      if (issued.transactionId !== options.transactionId) throw new Error("receipt close transaction mismatch");
+      try {
+        await this.readRecord(this.path("consumed", receiptDigest), "consumed");
+        throw new Error("cannot close a consumed receipt");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      await this.publishJson(this.path("closed", receiptDigest), { ...issued, closedAt: options.closedAt.toISOString(), reasonCode: options.reasonCode }, "closed", "receipt is already closed");
+    });
+  }
+
+  async inspectIssuedByDigest(receiptDigest: string): Promise<AlphaIntegrityReceipt | undefined> {
+    if (!SHA256.test(receiptDigest)) throw new Error("receipt digest is invalid");
+    return this.withLock(async () => {
+      try {
+        const record = await this.readRecord(this.path("issued", receiptDigest), "issued");
+        return freezeValidated(structuredClone(record.receipt!));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      }
+    });
+  }
+
+  async inspectIssuedByRunId(runId: string): Promise<AlphaIntegrityReceipt | undefined> {
+    if (!SAFE_IDENTIFIER.test(runId)) throw new Error("run ID is invalid");
+    return this.withLock(async () => {
+      try {
+        const pointer = await this.readRecord(this.path("runs", runId), "run");
+        const issued = await this.readRecord(this.path("issued", pointer.receiptDigest), "issued");
+        if (issued.runId !== runId || issued.transactionId !== pointer.transactionId) throw new Error("run receipt binding mismatch");
+        return freezeValidated(structuredClone(issued.receipt!));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      }
+    });
+  }
+
+  async inspectConsumed(receiptDigest: string): Promise<ConsumedReceiptRecord | undefined> {
+    if (!SHA256.test(receiptDigest)) throw new Error("receipt digest is invalid");
+    return this.withLock(async () => {
+      try { return consumedView(await this.readRecord(this.path("consumed", receiptDigest), "consumed")); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      }
+    });
+  }
+
+  async inspectCapacity(): Promise<{ readonly used: number; readonly maximum: number }> {
+    return this.withLock(async () => {
+      const entries = await readdir(join(this.directory, "quota"), { withFileTypes: true });
+      if (entries.length > this.#maxRecords) throw new Error("receipt quota exceeds configured record limit");
+      let used = 0;
+      for (const entry of entries) {
+        if (!entry.isFile() || !/^[a-f0-9]{64}\.json$/u.test(entry.name)) throw new Error("invalid receipt quota entry");
+        await this.readRecord(join(this.directory, "quota", entry.name), "quota");
+        used += 1;
+      }
+      return freezeValidated({ used, maximum: this.#maxRecords });
     });
   }
 }

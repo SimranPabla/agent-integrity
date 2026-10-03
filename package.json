@@ -25,8 +25,8 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "tsc -b packages/protocol packages/core packages/sdk packages/cli",
-    "typecheck": "tsc -b packages/protocol packages/core packages/sdk packages/cli --pretty false",
+    "build": "tsc -b packages/protocol packages/core packages/sdk packages/cli packages/sidecar",
+    "typecheck": "tsc -b packages/protocol packages/core packages/sdk packages/cli packages/sidecar --pretty false",
     "test": "vitest run",
     "verify": "npm run typecheck && npm test && npm run build",
     "release:check": "node scripts/pre-release-check.mjs",
