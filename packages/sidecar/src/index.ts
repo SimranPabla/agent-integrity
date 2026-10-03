@@ -11,3 +11,5 @@ export * from "./request-store.js";
 export * from "./config.js";
 export * from "./key-registry.js";
 export * from "./cage-trust-manifest.js";
+export { loadTrustedVerificationContext, parseVerificationInput, type VerificationInput, type VerificationLimits } from "./trusted-context.js";
+export { runTrustedVerification, parseVerificationOutput, type VerificationRunResult, type VerificationRunOptions } from "./verification-runner.js";
