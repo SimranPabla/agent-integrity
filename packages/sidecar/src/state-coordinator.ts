@@ -318,6 +318,18 @@ export class StateCoordinator {
     }
     const final = await StateCoordinator.#validatedNestedInventory(this.#root, this.#lease);
     if (final.pending !== 0) throw new Error("nested lock handoff completion remains pending");
+    // SIGKILL after create-once publication can retain the staging hardlink.
+    // Reconcile only in this explicit offline-exclusive continuation, after the
+    // complete root/nested handoff, using the same live recovery capability.
+    // Persisted records still require nlink === 1; ordinary startup never cleans.
+    for (const path of Object.values(this.#lease.nestedLockPaths)) {
+      await this.#assertLease();
+      await StateCoordinator.#validatedNestedInventory(this.#root, this.#lease);
+      const store = new FileReceiptStore(join(this.#root.path, dirname(path)), { lockOwnership: ownership });
+      await store.cleanupStaging({ offlineExclusive: true });
+      await this.#assertLease();
+      await StateCoordinator.#validatedNestedInventory(this.#root, this.#lease);
+    }
     this.#nestedHandoffCompleted = true;
   }
 
