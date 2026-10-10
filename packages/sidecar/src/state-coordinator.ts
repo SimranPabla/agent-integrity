@@ -106,12 +106,13 @@ async function inspectNestedLocks(directory: string, lease: LeaseRecord, prior: 
       if (node.isDirectory()) { identities.set(full, { dev: node.dev, ino: node.ino, uid: node.uid }); pending.push({ absolute: full, prefix: relative, depth: depth + 1 }); continue; }
       if (entry.name === ".store-lock.json") {
         if (!expected.has(relative)) throw new Error("unexpected additional nested lock");
-        const handle = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW);
+        if (!node.isFile() || node.nlink !== 1 || node.size > 4096 || (node.mode & 0o777) !== 0o600 || (process.getuid !== undefined && node.uid !== process.getuid())) throw new Error("nested lock mode or ownership invalid");
+        const handle = await open(full, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
         try {
           const before = await handle.stat();
-          if (!before.isFile() || before.nlink !== 1 || before.size > 4096 || (before.mode & 0o777) !== 0o600 || (process.getuid !== undefined && before.uid !== process.getuid())) throw new Error("nested lock mode or ownership invalid");
+          if (before.dev !== node.dev || before.ino !== node.ino || before.uid !== node.uid || before.mode !== node.mode || before.nlink !== node.nlink || before.size !== node.size || before.mtimeMs !== node.mtimeMs || before.ctimeMs !== node.ctimeMs || !before.isFile() || before.nlink !== 1 || before.size > 4096 || (before.mode & 0o777) !== 0o600 || (process.getuid !== undefined && before.uid !== process.getuid())) throw new Error("nested lock mode or ownership invalid");
           const buffer = Buffer.alloc(4097); const { bytesRead } = await handle.read(buffer,0,buffer.length,0); const after=await handle.stat(); const pathAfter=await lstat(full);
-          if (bytesRead !== before.size || before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || pathAfter.ino !== after.ino || pathAfter.dev !== after.dev) throw new Error("nested lock changed during inspection");
+          if (bytesRead !== before.size || before.dev !== after.dev || before.ino !== after.ino || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || pathAfter.ino !== after.ino || pathAfter.dev !== after.dev || !pathAfter.isFile() || pathAfter.nlink !== 1 || pathAfter.uid !== before.uid || pathAfter.mode !== before.mode || pathAfter.size !== after.size || pathAfter.mtimeMs !== after.mtimeMs || pathAfter.ctimeMs !== after.ctimeMs) throw new Error("nested lock changed during inspection");
           const value: unknown = JSON.parse(buffer.subarray(0,bytesRead).toString("utf8")); const name = Object.keys(lease.nestedLockPaths).find(name => lease.nestedLockPaths[name] === relative)!; const known = prior.some(handoff => canonicalJson(handoff.nestedLocks[name]) === canonicalJson(value)); closedNestedLock(value, known ? { ...lease, ownerToken: (value as CoordinatorLockOwnership).ownerToken } : lease); observed.set(relative, value); markerIdentities[name] = {dev:before.dev,ino:before.ino,mtimeMs:before.mtimeMs,ctimeMs:before.ctimeMs};
         } finally { await handle.close(); }
       }
@@ -144,6 +145,7 @@ export function assertMutationCapability(value: unknown): asserts value is Mutat
 }
 
 export class StateCoordinator {
+  static readonly #knownRecoveryOwners = new Map<string, WeakRef<StateCoordinator>>();
   readonly #root: DurableJsonDirectory;
   readonly #lease: LeaseRecord;
   #closed = false;
@@ -152,7 +154,7 @@ export class StateCoordinator {
   readonly #faultInjector: DurableJsonOptions["faultInjector"];
   #nestedHandoffCompleted: boolean;
 
-  private constructor(root: DurableJsonDirectory, lease: LeaseRecord, offlineRecovery = false, faultInjector?: DurableJsonOptions["faultInjector"]) { this.#root = root; this.#lease = lease; this.#offlineRecovery = offlineRecovery; this.#faultInjector = faultInjector; this.#nestedHandoffCompleted = !offlineRecovery; }
+  private constructor(root: DurableJsonDirectory, lease: LeaseRecord, offlineRecovery = false, faultInjector?: DurableJsonOptions["faultInjector"]) { this.#root = root; this.#lease = lease; this.#offlineRecovery = offlineRecovery; this.#faultInjector = faultInjector; this.#nestedHandoffCompleted = !offlineRecovery; if (offlineRecovery) StateCoordinator.#knownRecoveryOwners.set(lease.rootIdentityDigest + ":" + lease.ownerToken, new WeakRef(this)); }
 
   static async acquire(directory: string, options: StateCoordinatorOptions): Promise<StateCoordinator> {
     if (!SAFE.test(options.storeGeneration)) throw new TypeError("store generation is invalid");
@@ -219,6 +221,19 @@ export class StateCoordinator {
     if (await rootDigest(directory) !== options.expectedRootIdentityDigest) throw new Error("state-root identity does not match offline recovery authority");
     const history = await StateCoordinator.#leaseHistory(root);
     const effective = history.effective;
+    const last = history.chain.at(-1);
+    if (last?.previousOwnerToken === options.expectedOwnerToken && last.ownerToken === nextOwnerToken && effective.ownerToken === nextOwnerToken) {
+      // Same-process knowledge only, not cross-process PID/death proof.
+      const known = StateCoordinator.#knownRecoveryOwners.get(effective.rootIdentityDigest + ":" + nextOwnerToken)?.deref();
+      if (known !== undefined && !known.#closed) throw new Error("known live recovery owner forbids duplicate continuation");
+      if (effective.storeGeneration !== options.storeGeneration || effective.rootIdentityDigest !== options.expectedRootIdentityDigest || !sameInventory(effective.nestedLockNames, nestedLockNames) || canonicalJson(effective.nestedLockPaths) !== canonicalJson(nestedLockPaths)) throw new Error("offline continuation binding mismatch");
+      const inventory = await StateCoordinator.#validatedNestedInventory(root, effective);
+      if (canonicalJson(inventory.locks) !== canonicalJson(last.nestedLocks) || canonicalJson(inventory.markerIdentities) !== canonicalJson(last.nestedMarkerIdentities) || inventory.completed.size !== 0 || (await root.entries("nested-locks")).length !== 0) throw new Error("offline continuation inventory changed");
+      // Re-establish durability; visible prior publication is not a barrier.
+      for (const handoff of history.chain) await root.ensurePublished(`handoffs/${createHash("sha256").update(handoff.previousOwnerToken, "utf8").digest("hex")}.json`, handoff);
+      await StateCoordinator.#validatedNestedInventory(root, effective);
+      return new StateCoordinator(root, effective, true, options.faultInjector);
+    }
     if (history.chain.some(handoff => handoff.previousOwnerToken === nextOwnerToken || handoff.ownerToken === nextOwnerToken)) throw new Error("root handoff owner token reuse is forbidden");
     if (effective.ownerToken !== options.expectedOwnerToken || effective.storeGeneration !== options.storeGeneration || effective.rootIdentityDigest !== options.expectedRootIdentityDigest || !sameInventory(effective.nestedLockNames, nestedLockNames) || canonicalJson(effective.nestedLockPaths) !== canonicalJson(nestedLockPaths)) throw new Error("offline recovery owner, generation, root, or complete nested-lock inventory mismatch");
     if (canonicalJson(await captureNestedDirectories(directory, nestedLockPaths)) !== canonicalJson(effective.nestedDirectoryIdentities)) throw new Error("configured nested directory identity changed");
@@ -241,6 +256,15 @@ export class StateCoordinator {
       await root.ensurePublished(handoffPath, handoff);
     }
     return new StateCoordinator(root, { ...effective, ownerToken: nextOwnerToken }, true, options.faultInjector);
+  }
+
+  /** Fresh read-only lease/root validation; never issues mutation authority. */
+  async inspectLease(): Promise<void> {
+    if (this.#closed) throw new Error("state coordinator is closed");
+    await this.#assertLease();
+    if (await rootDigest(this.#root.path) !== this.#lease.rootIdentityDigest || canonicalJson(await captureNestedDirectories(this.#root.path, this.#lease.nestedLockPaths)) !== canonicalJson(this.#lease.nestedDirectoryIdentities)) throw new Error("state-root identity changed");
+    await StateCoordinator.#validatedNestedInventory(this.#root, this.#lease);
+    await this.#assertLease();
   }
 
   async withMutation<T>(operation: (capability: MutationCapability) => T | Promise<T>): Promise<T> {
@@ -309,6 +333,8 @@ export class StateCoordinator {
       for (const name of await this.#root.entries("handoffs")) await this.#root.remove(`handoffs/${name}`);
       await this.#root.remove("lease.json");
       this.#closed = true;
+      const key = this.#lease.rootIdentityDigest + ":" + this.#lease.ownerToken;
+      if (StateCoordinator.#knownRecoveryOwners.get(key)?.deref() === this) StateCoordinator.#knownRecoveryOwners.delete(key);
     } finally { this.#mutating = false; }
   }
 

@@ -4,7 +4,7 @@
 
 This package is an implementation in progress. It is not yet a deployable service and the pull request must remain in draft until the remaining implementation tasks and final adversarial review are complete.
 
-The current tree implements Tasks 1–7 of the approved plan in `docs/plans/private-verified-release-sidecar-implementation.md`.
+The current tree contains Tasks 1–9 of the approved plan in `docs/plans/private-verified-release-sidecar-implementation.md`. Task 8 is published; Task 9 has passed independent specification and scoped security re-reviews, with local checkpoint/final acceptance recorded separately. This does not authorize deployment or publication of Task 9.
 
 ## Implemented components
 
@@ -59,7 +59,7 @@ The current tree implements Tasks 1–7 of the approved plan in `docs/plans/priv
 
 The JWKS contains exact public Ed25519 JWK members `kty`, `crv`, `x`, `kid`, `use`, and `alg`. All lifecycle controls reside in the single `https://github.com/SimranPabla/agent-integrity/params/jwks/receipt-manifest/v1` extension. Its digest covers the complete canonical set with only `manifestDigest` and `signature` omitted. The pinned authority signs UTF-8 `cage-agent-integrity-trust-manifest-v1`, one NUL byte, and the raw 32-byte digest. Public keys and signatures use canonical unpadded base64url (32 and 64 decoded bytes).
 
-Generic JWKS parsing is compatible but is **not** sufficient admission authority. The closed parser additionally validates sorted one-to-one key metadata, profile ceilings, signature, fresh time, and the accepted generation/digest pair. Persisting that pair, preparing transactions, publishing registry snapshots, and wiring recovery-key references into transactions remain later-task integration work. Recovery retain handles currently protect keys in process memory only; operators must keep the configured key files across restarts until durable prepared transactions are resolved.
+Generic JWKS parsing is compatible but is **not** sufficient admission authority. The closed parser additionally validates sorted one-to-one key metadata, profile ceilings, signature, fresh time, and the accepted generation/digest pair. Task 8 durably binds prepared transactions and registry snapshots; operators must keep required original configured key files across restarts until durable prepared transactions are resolved. Joint CAGE integration and deployment qualification remain later tasks.
 
 ### 7. Cancellable trusted verification
 
@@ -72,7 +72,7 @@ Generic JWKS parsing is compatible but is **not** sufficient admission authority
 
 Worker threads provide **cooperative cancellation/isolation, not an operating-system sandbox for hostile code**. They retain the process Unix identity and ambient filesystem privileges. Trusted parent code selects snapshot roots and limits; the model does not. Protected snapshot ownership and the single trusted mutation coordinator remain necessary.
 
-The private snapshot manifest does not retain the original request envelope digest. This layer binds policy/source/decision data to the current envelope; Task 8 must durably bind the selected snapshot identity and exact envelope/request digest in the transaction. Signing, consumption, recovery, queue integration and release remain Task 8/later work.
+The private snapshot manifest does not retain the original request envelope digest. This layer binds policy/source/decision data to the current envelope; Task 8 durably binds the selected snapshot identity and exact envelope/request digest in the transaction. Task 9 assembles the bounded queue, runtime, transport and protected offline recovery around that transaction.
 
 ## Security guarantees established so far
 
@@ -115,11 +115,26 @@ GitHub Actions independently runs the required Node 22 and Node 24/npm 12 jobs f
 
 ## Remaining implementation
 
-The following approved-plan areas are not yet implemented:
-
-- trusted verification integration into the durable service transaction;
-- Unix-socket service runtime, bounded transaction queue, and delivery recovery;
-- release-output boundary integration and complete crash reconciliation;
-- deployment assets, operator runbook, integration fixtures, and final adversarial test matrix.
+Task 8 supplies durable verified-release/recovery orchestration; Task 9 adds Unix-socket transport, runtime, health and protected recovery CLI. Remaining approved-plan work includes Task 10 integration/identity/network/clean-install and joint CAGE fixtures, and Task 11 deployment/operations/final adversarial acceptance. No production service has been deployed. Operator instructions for this local slice are separate from deployment approval.
 
 Until these are complete, this package must not be represented as a finished sidecar or production control plane.
+
+## Task 9 local command surface (local-only; not deployment approval)
+
+This private workspace package is excluded from the public npm publish set. It uses Node built-ins and HTTP over one Unix domain socket; no TCP listener. Local tests are not production-readiness or separate-identity proof.
+
+```text
+integrity-sidecar check-config --config /absolute/path/config.json
+integrity-sidecar serve --config /absolute/path/config.json
+integrity-sidecar recover --config /absolute/path/config.json --offline-exclusive --authorization-file /absolute/path/recovery.json
+```
+
+Configuration and keys are protected files, never argv secrets. Commands emit redacted JSON codes. Configuration check does not acquire state authority or bind a socket. SIGTERM/SIGINT stop admission, cancel only pure verification and drain durable work; an unsafe drain exits nonzero and preserves authority.
+
+Offline recovery requires stopping every writer first. `--offline-exclusive` is an operator assertion, **not OS proof of process death**. Recovery rejects a live configured socket and requires an exact canonical 0400 authorization outside incoming/state roots, owned by root or the sidecar identity, with version 1, action recover, storeGeneration, rootIdentityDigest, abandonedOwnerToken, issuedAt, expiresAt and unique nonce. Never delete locks or reset replay/consumption records. The immutable authorization derives the next owner; the complete handoff is durable before a create-once consumed audit, and the audit precedes source removal. A consumed authorization is not reusable. Failures preserve recoverable state and may require a new separately authorized offline operation; there is no automatic lock stealing.
+
+OS provisioning, system services, real separate-user/no-network proof and deployment are outside this package slice.
+
+Shutdown validates the pinned socket and directory immediately before closing the Node listener, then stops accepting new connections while durable work drains. Forced grace expiry preserves the root lease and returns unsafe. Node/libuv itself unlinks the bound pathname when closing its listener; portable JavaScript cannot promise preservation against a same-identity hostile replacement in the final validation-to-close race. Pre-existing detected substitutions fail closed before listener close. This limitation is not separate-user isolation proof.
+
+Readiness observes fresh lease and initialized store capacity without queue admission, new receipt-store locks, issuance or consumption. Concurrent or malformed state observations fail closed; healthy busy operation is not inferred from cached readiness. Authorization replay preflight is read-only; audit initialization/publication runs only with the exact live root recovery capability.

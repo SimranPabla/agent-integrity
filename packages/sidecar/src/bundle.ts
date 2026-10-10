@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { ServiceFailure } from "./service-failure.js";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, opendir, rename, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
@@ -245,19 +246,29 @@ function parseManifestObject(value: unknown, limits: BundleLimits, nowMs: number
   return deepFreeze(parsed);
 }
 
+function validateManifestNode(node: { isFile(): boolean; nlink: bigint; mode: bigint; size: bigint }, maximumBytes: number, mode: "incoming" | "private"): void {
+  if (!node.isFile() || node.nlink !== 1n) throw new Error("manifest must be a single-link regular file");
+  const permissions = Number(node.mode & 0o777n);
+  if (mode === "private" ? permissions !== 0o600 : (permissions & 0o027) !== 0) throw new Error("manifest mode or permissions are invalid");
+  if (node.size > BigInt(maximumBytes)) throw new Error("manifest bytes exceed the configured limit");
+}
 async function boundedCanonicalJson(path: string, maximumBytes: number, mode: "incoming" | "private"): Promise<{ value: unknown; bytes: Buffer }> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  // Incoming manifests are untrusted filesystem objects: reject special files
+  // before open, and keep the open bounded if a regular node is replaced.
+  const node = await lstat(path, { bigint: true });
+  validateManifestNode(node, maximumBytes, mode);
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const before = await handle.stat({ bigint: true });
-    if (!before.isFile() || before.nlink !== 1n) throw new Error("manifest must be a single-link regular file");
-    const permissions = Number(before.mode & 0o777n);
-    if (mode === "private" ? permissions !== 0o600 : (permissions & 0o027) !== 0) throw new Error("manifest mode or permissions are invalid");
-    if (before.size > BigInt(maximumBytes)) throw new Error("manifest bytes exceed the configured limit");
+    validateManifestNode(before, maximumBytes, mode);
+    if (!sameStableStat(stableStat(node), stableStat(before))) throw new Error("manifest changed before open");
     const buffer = Buffer.alloc(Number(before.size) + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     const after = await handle.stat({ bigint: true });
     const pathAfter = await lstat(path, { bigint: true });
-    if (bytesRead !== Number(before.size) || before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || pathAfter.dev !== after.dev || pathAfter.ino !== after.ino) throw new Error("manifest changed while being read");
+    validateManifestNode(after, maximumBytes, mode);
+    validateManifestNode(pathAfter, maximumBytes, mode);
+    if (bytesRead !== Number(before.size) || !sameStableStat(stableStat(before), stableStat(after)) || !sameStableStat(stableStat(after), stableStat(pathAfter))) throw new Error("manifest changed while being read");
     const bytes = buffer.subarray(0, bytesRead);
     let value: unknown;
     try { value = JSON.parse(bytes.toString("utf8")); } catch { throw new Error("manifest JSON is invalid"); }
@@ -353,12 +364,15 @@ async function ensurePrivateDirectory(path: string): Promise<void> {
   await inspectDirectory(path, "private");
 }
 
-async function copyVerifiedFile(source: string, target: string, record: BundleFileRecord, faultInjector?: BundleSnapshotOptions["faultInjector"]): Promise<void> {
-  const sourceHandle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+type IncomingOperation = <T>(operation: () => Promise<T>) => Promise<T>;
+async function copyVerifiedFile(source: string, target: string, record: BundleFileRecord, incoming: IncomingOperation, faultInjector?: BundleSnapshotOptions["faultInjector"]): Promise<void> {
+  const sourceHandle = await incoming(async () => {
+    const node = stableStat(await lstat(source, { bigint: true })); validateIncomingFile(node);
+    const handle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try { const opened = stableStat(await handle.stat({ bigint: true })); validateIncomingFile(opened); if (!sameStableStat(node, opened)) throw new Error("incoming file identity changed before open"); return handle; } catch (error) { await handle.close(); throw error; }
+  });
   try {
-    const before = stableStat(await sourceHandle.stat({ bigint: true }));
-    validateIncomingFile(before);
-    if (before.size !== BigInt(record.bytes)) throw new Error("incoming bundle file size mismatch");
+    const before = await incoming(async () => { const value = stableStat(await sourceHandle.stat({ bigint: true })); validateIncomingFile(value); if (value.size !== BigInt(record.bytes)) throw new Error("incoming bundle file size mismatch"); return value; });
     await ensurePrivateDirectory(dirname(target));
     const targetHandle = await open(target, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
     try {
@@ -367,8 +381,7 @@ async function copyVerifiedFile(source: string, target: string, record: BundleFi
       const buffer = Buffer.alloc(64 * 1024);
       let position = 0;
       while (position < record.bytes) {
-        const { bytesRead } = await sourceHandle.read(buffer, 0, Math.min(buffer.length, record.bytes - position), position);
-        if (bytesRead === 0) throw new Error("incoming bundle file ended before declared size");
+        const { bytesRead } = await incoming(async () => { const result = await sourceHandle.read(buffer, 0, Math.min(buffer.length, record.bytes - position), position); if (result.bytesRead === 0) throw new Error("incoming bundle file ended before declared size"); return result; });
         const chunk = buffer.subarray(0, bytesRead);
         hash.update(chunk);
         let written = 0;
@@ -380,17 +393,21 @@ async function copyVerifiedFile(source: string, target: string, record: BundleFi
         position += bytesRead;
       }
       const extra = Buffer.alloc(1);
-      if ((await sourceHandle.read(extra, 0, 1, position)).bytesRead !== 0) throw new Error("incoming bundle file exceeds declared size");
+      await incoming(async () => { if ((await sourceHandle.read(extra, 0, 1, position)).bytesRead !== 0) throw new Error("incoming bundle file exceeds declared size"); });
       await faultInjector?.("file:after-read", source);
-      const after = stableStat(await sourceHandle.stat({ bigint: true }));
-      if (!sameStableStat(before, after)) throw new Error("incoming bundle file changed during copy");
-      const pathAfter = await lstat(source, { bigint: true });
-      if (pathAfter.dev !== after.dev || pathAfter.ino !== after.ino || pathAfter.size !== after.size || pathAfter.mtimeNs !== after.mtimeNs || pathAfter.ctimeNs !== after.ctimeNs) throw new Error("incoming bundle file identity changed during copy");
-      if (hash.digest("hex") !== record.sha256) throw new Error("incoming bundle file digest mismatch");
+      await incoming(async () => {
+        const after = stableStat(await sourceHandle.stat({ bigint: true }));
+        validateIncomingFile(after);
+        if (!sameStableStat(before, after)) throw new Error("incoming bundle file changed during copy");
+        const pathAfter = await lstat(source, { bigint: true });
+        validateIncomingFile(stableStat(pathAfter));
+        if (pathAfter.dev !== after.dev || pathAfter.ino !== after.ino || pathAfter.size !== after.size || pathAfter.mtimeNs !== after.mtimeNs || pathAfter.ctimeNs !== after.ctimeNs) throw new Error("incoming bundle file identity changed during copy");
+        if (hash.digest("hex") !== record.sha256) throw new Error("incoming bundle file digest mismatch");
+      });
       await targetHandle.sync();
     } finally { await targetHandle.close(); }
     await syncDirectory(dirname(target));
-  } finally { await sourceHandle.close(); }
+  } finally { await incoming(() => sourceHandle.close()); }
 }
 
 function snapshotIdentity(manifestDigest: string, files: readonly BundleFileRecord[]): string {
@@ -505,7 +522,27 @@ async function writePrivateManifest(path: string, manifest: PrivateSnapshotManif
   } finally { await handle.close(); }
 }
 
-export async function validateAndSnapshotBundle(options: BundleSnapshotOptions): Promise<BundleSnapshot> {
+/** Existing diagnostic API retains its checks and errors. The service entrypoint
+ * shares this exact driver and changes only failure metadata at incoming origins. */
+export async function validateAndSnapshotBundle(options: BundleSnapshotOptions, classified = false): Promise<BundleSnapshot> {
+  return snapshotBundle(options, classified);
+}
+export async function validateAndSnapshotBundleForService(options: BundleSnapshotOptions): Promise<BundleSnapshot> {
+  return snapshotBundle(options, true);
+}
+async function snapshotBundle(options: BundleSnapshotOptions, classified: boolean): Promise<BundleSnapshot> {
+  const incoming = async <T>(operation: () => Promise<T>): Promise<T> => {
+    try { return await operation(); } catch (error) {
+      if (!classified) throw error;
+      // Only exceptions from these closed incoming-read/validation operations
+      // are classified. Private staging, copying targets and publication are NOT.
+      const errno = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined;
+      if (errno === "ENOENT" || errno === "EACCES" || errno === "EPERM") throw new ServiceFailure("BUNDLE_UNAVAILABLE");
+      if (errno !== undefined && errno !== "ELOOP" && errno !== "ENOTDIR") throw new ServiceFailure("STORAGE_UNAVAILABLE");
+      if (!(error instanceof Error)) throw new ServiceFailure("SERVICE_UNAVAILABLE");
+      throw new ServiceFailure("BUNDLE_INVALID");
+    }
+  };
   const captured = dataRecord(options, "bundle snapshot options");
   const expectedKeys = captured.faultInjector === undefined ? ["incomingRoot", "limits", "nowMs", "request", "snapshotRoot"] : ["faultInjector", "incomingRoot", "limits", "nowMs", "request", "snapshotRoot"];
   exactKeys(captured, expectedKeys, "bundle snapshot options");
@@ -520,19 +557,18 @@ export async function validateAndSnapshotBundle(options: BundleSnapshotOptions):
   const faultInjector = captured.faultInjector as BundleSnapshotOptions["faultInjector"];
   const limits = parseLimits(captured.limits as BundleLimits);
   const bundleId = assertSafeBundleId(request.bundleId);
-  const incomingRootBefore = await inspectDirectory(incomingRoot, "incoming");
+  const incomingRootBefore = await incoming(() => inspectDirectory(incomingRoot, "incoming"));
   await inspectDirectory(snapshotRoot, "private");
   const bundlePath = join(incomingRoot, bundleId);
-  const bundleBefore = await inspectDirectory(bundlePath, "incoming");
+  const bundleBefore = await incoming(() => inspectDirectory(bundlePath, "incoming"));
   const projectPath = join(bundlePath, "project");
-  const projectBefore = await inspectDirectory(projectPath, "incoming");
-  const rawManifest = await boundedCanonicalJson(join(bundlePath, "manifest.json"), limits.maxManifestBytes, "incoming");
-  const manifest = parseManifestObject(rawManifest.value, limits, nowMs);
-  requireManifestBindings(manifest, request);
+  const projectBefore = await incoming(() => inspectDirectory(projectPath, "incoming"));
+  const rawManifest = await incoming(() => boundedCanonicalJson(join(bundlePath, "manifest.json"), limits.maxManifestBytes, "incoming"));
+  const manifest = await incoming(async () => { const parsed = parseManifestObject(rawManifest.value, limits, nowMs); requireManifestBindings(parsed, request); return parsed; });
   const maximumEntries = limits.maxFiles * 2 + limits.maxAllowedSourceRoots + 16;
-  const actualFiles = await listProjectFiles(projectPath, limits.maxPathBytes, maximumEntries, "incoming");
+  const actualFiles = await incoming(() => listProjectFiles(projectPath, limits.maxPathBytes, maximumEntries, "incoming"));
   const declaredFiles = manifest.files.map(({ path }) => path);
-  if (canonicalJson(actualFiles) !== canonicalJson(declaredFiles)) throw new Error("incoming bundle exhaustive file list mismatch: extra or missing file");
+  await incoming(async () => { if (canonicalJson(actualFiles) !== canonicalJson(declaredFiles)) throw new Error("incoming bundle exhaustive file list mismatch: extra or missing file"); });
 
   const staging = join(snapshotRoot, `.snapshot-${randomUUID()}.tmp`);
   await mkdir(staging, { mode: 0o700 });
@@ -541,10 +577,13 @@ export async function validateAndSnapshotBundle(options: BundleSnapshotOptions):
   try {
     const stagingProject = join(staging, "project");
     await ensurePrivateDirectory(stagingProject);
-    for (const record of manifest.files) await copyVerifiedFile(join(projectPath, record.path), join(stagingProject, record.path), record, faultInjector);
+    for (const record of manifest.files) await copyVerifiedFile(join(projectPath, record.path), join(stagingProject, record.path), record, incoming, faultInjector);
+    await incoming(async () => {
     const secondFiles = await listProjectFiles(projectPath, limits.maxPathBytes, maximumEntries, "incoming");
     if (canonicalJson(secondFiles) !== canonicalJson(declaredFiles)) throw new Error("incoming bundle changed during snapshot copy");
+    });
     await faultInjector?.("bundle:before-final-identity", bundlePath);
+    await incoming(async () => {
     let incomingRootAfter: FileIdentity;
     let bundleAfter: FileIdentity;
     let projectAfter: FileIdentity;
@@ -552,8 +591,14 @@ export async function validateAndSnapshotBundle(options: BundleSnapshotOptions):
       [incomingRootAfter, bundleAfter, projectAfter] = await Promise.all([
         inspectDirectory(incomingRoot, "incoming"), inspectDirectory(bundlePath, "incoming"), inspectDirectory(projectPath, "incoming"),
       ]);
-    } catch (error) { throw new Error("incoming bundle root identity was replaced during snapshot copy", { cause: error }); }
+    } catch (error) {
+      // Preserve the diagnostic API's existing identity message, but retain the
+      // original incoming errno for the closed service classification at origin.
+      if (classified) throw error;
+      throw new Error("incoming bundle root identity was replaced during snapshot copy", { cause: error });
+    }
     if (!sameFileIdentity(incomingRootBefore, incomingRootAfter) || !sameFileIdentity(bundleBefore, bundleAfter) || !sameFileIdentity(projectBefore, projectAfter)) throw new Error("incoming bundle root identity was replaced during snapshot copy");
+    });
     const snapshotId = snapshotIdentity(manifest.manifestDigest, manifest.files);
     const privateManifest: PrivateSnapshotManifest = deepFreeze({
       version: "2", originalManifest: manifest, snapshotId, incomingManifestDigest: manifest.manifestDigest,

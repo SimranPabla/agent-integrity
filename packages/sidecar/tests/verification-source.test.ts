@@ -11,7 +11,7 @@ it('each source worker reads current reachable TS and never falls back to siblin
  const scratch = await mkdtemp(join(parent,'task7-source-'));
  try {
   // All mutations belong to this invocation, never the actual source tree.
-  for(const name of ['verification-runner','verification-worker','trusted-context','bundle','protocol','path-boundary'])
+  for(const name of ['verification-runner','verification-worker','trusted-context','bundle','service-failure','protocol','path-boundary'])
    await writeFile(join(scratch,name+'.ts'),await readFile(new URL('../src/'+name+'.ts',import.meta.url),'utf8'));
   await writeFile(join(scratch,'verification-worker.js'),"throw Error('stale sibling must not load');");
   const runner = await import(/* @vite-ignore */ pathToFileURL(join(scratch,'verification-runner.ts')).href);

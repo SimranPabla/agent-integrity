@@ -784,6 +784,39 @@ export class FileReceiptStore {
     });
   }
 
+  /** Fresh observation only: no initialization, lock, mutation capability or repair.
+   * A concurrently changing quota is unavailable, never a cached healthy result. */
+  async observeCapacity(): Promise<{ readonly used: number; readonly maximum: number }> {
+    const paths = [this.directory, ...["runs", "nonces", "issued", "consumed", "closed", "quota", "transactions", "recovery", "cleanup", ".staging"].map(name => join(this.directory, name))];
+    const inspect = async (path: string) => {
+      const info = await lstat(path);
+      if (!info.isDirectory() || info.isSymbolicLink() || (info.mode & 0o7777) !== 0o700 || (process.getuid !== undefined && info.uid !== process.getuid()) || await realpath(path) !== path) throw new Error("receipt observation directory is unsafe");
+      return info;
+    };
+    const before = [];
+    for (const path of paths) before.push(await inspect(path));
+    const quota = join(this.directory, "quota"), stream = await opendir(quota);
+    let used = 0;
+    try { for await (const entry of stream) {
+      if (++used > this.#maxRecords || !entry.isFile() || !SHA256.test(entry.name.slice(0, -5)) || !entry.name.endsWith(".json")) throw new Error("invalid or excessive receipt quota inventory");
+      const path = join(quota, entry.name), handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+      try {
+        const initial = await handle.stat();
+        if (!initial.isFile() || initial.nlink !== 1 || (initial.mode & 0o7777) !== 0o600 || (process.getuid !== undefined && initial.uid !== process.getuid()) || initial.size > this.#maxStateBytes) throw new Error("receipt quota observation is unsafe");
+        const buffer = Buffer.alloc(this.#maxStateBytes + 1), { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        const record = parseStoredReceiptRecord(JSON.parse(buffer.subarray(0, bytesRead).toString("utf8")), "quota");
+        if (record.quotaSlot < 0 || record.quotaSlot >= this.#maxRecords || this.path("quota", String(record.quotaSlot)) !== path) throw new Error("receipt quota path identity mismatch");
+        const after = await handle.stat(), node = await lstat(path);
+        if (bytesRead !== initial.size || initial.dev !== after.dev || initial.ino !== after.ino || initial.mtimeMs !== after.mtimeMs || initial.ctimeMs !== after.ctimeMs || initial.size !== after.size || node.isSymbolicLink() || node.dev !== after.dev || node.ino !== after.ino || node.uid !== initial.uid || node.nlink !== 1 || node.mode !== initial.mode) throw new Error("receipt quota changed during observation");
+      } finally { await handle.close(); }
+    }} finally { await stream.close().catch(() => undefined); }
+    for (let i = 0; i < paths.length; i++) {
+      const after = await inspect(paths[i]!), initial = before[i]!;
+      if (initial.dev !== after.dev || initial.ino !== after.ino || initial.mtimeMs !== after.mtimeMs || initial.ctimeMs !== after.ctimeMs) throw new Error("receipt capacity changed during observation");
+    }
+    return freezeValidated({ used, maximum: this.#maxRecords });
+  }
+
   async inspectCapacity(): Promise<{ readonly used: number; readonly maximum: number }> {
     return this.withLock(async () => {
       const entries = await readdir(join(this.directory, "quota"), { withFileTypes: true });

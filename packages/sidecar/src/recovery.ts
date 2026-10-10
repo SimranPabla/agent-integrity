@@ -1,3 +1,4 @@
+import { ServiceFailure } from "./service-failure.js";
 import type { AlphaIntegrityReceipt } from "@agent-integrity/protocol";
 import type { FileReceiptStore } from "@agent-integrity/core";
 import type { ActiveRequestState, ReceiptIssuedState, ReceiptPreparedState, ResultCommittedState } from "./request-state.js";
@@ -138,11 +139,11 @@ export async function recoverServiceTransaction(options: VerifyReleaseServiceOpt
             return state.response;
         const request = await originalRequest(adapters, options, state);
         if (state.phase === "reserved") {
-            const snapshot = await validateAndSnapshotBundle({ request, incomingRoot: adapters.incomingRoot, snapshotRoot: adapters.snapshotRoot, nowMs: now().getTime(), limits: adapters.bundleLimits });
+            const snapshot = await validateAndSnapshotBundle({ request, incomingRoot: adapters.incomingRoot, snapshotRoot: adapters.snapshotRoot, nowMs: now().getTime(), limits: adapters.bundleLimits }, true);
             const context = await originalContext(adapters, request, snapshot.snapshotId);
             const checked = await runTrustedVerification({ version: "1", canonicalEnvelope: canonicalJson(request.envelope), snapshotRoot: adapters.snapshotRoot, snapshotId: snapshot.snapshotId, bundleLimits: adapters.bundleLimits, limits: adapters.verificationLimits }, { timeoutMs: adapters.verificationTimeoutMs, ...(signal === undefined ? {} : { signal }) });
             if (checked.kind !== "verified")
-                throw new Error("pure verifier failed");
+                throw new ServiceFailure("VERIFIER_FAILURE");
             const verification = checked.verification;
             state = await options.requestStore.advance(capability, state, { phase: "verified", snapshotId: snapshot.snapshotId, envelopeDigest: verification.envelopeDigest, verificationDigest: hash(verification), verification: { protocolVersion: verification.protocolVersion, status: verification.status, findings: verification.findings } });
             continue;

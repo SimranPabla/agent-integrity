@@ -1,9 +1,10 @@
+import { ServiceFailure } from "./service-failure.js";
 import { createHash, randomUUID } from "node:crypto";
 import { type createReceipt, type FileReceiptStore, type TrustedVerificationContext } from "@agent-integrity/core";
 import type { AlphaIntegrityReceipt, EnvelopeVerificationResult } from "@agent-integrity/protocol";
 import { type releaseVerifiedReceipt } from "@agent-integrity/sdk";
 import { MutationScheduler, AdmissionError } from "./scheduler.js";
-import { RequestStore } from "./request-store.js";
+import { RequestStore, IdempotencyConflict } from "./request-store.js";
 import type { MutationCapability } from "./state-coordinator.js";
 import { serviceRequestDigest, type ParsedServiceRequest, type ServiceResponse } from "./protocol.js";
 import { parseCanonicalServiceRequest } from "./protocol.js";
@@ -127,7 +128,7 @@ export class VerifyReleaseService {
     }
     /** Transport-neutral public boundary: parse and authenticate the exact raw body before queueing. */
     async process(rawRequestBytes: Uint8Array, headers: AuthHeaders, signal?: AbortSignal): Promise<ServiceResponse> {
-        if (!(rawRequestBytes instanceof Uint8Array) || rawRequestBytes.byteLength > this.#options.durable.maximumRequestBytes) { const error = new Error("AUTHENTICATION_FAILED"); Object.assign(error, { code: "AUTHENTICATION_FAILED" }); throw error; }
+        if (!(rawRequestBytes instanceof Uint8Array) || rawRequestBytes.byteLength > this.#options.durable.maximumRequestBytes) { throw new ServiceFailure("AUTHENTICATION_FAILED"); }
         const admittedBytes = Buffer.from(rawRequestBytes);
         let request: ParsedServiceRequest;
         let authenticated: ReturnType<typeof authenticateRequest>;
@@ -140,7 +141,7 @@ export class VerifyReleaseService {
             authenticated = authenticateRequest({ request, method: this.#options.authMethod ?? "POST", path: this.#options.authPath ?? "/v1/verify-release", headers: capturedHeaders, nowMs, maximumSkewMs: this.#options.maximumAuthSkewMs!, registry: this.#options.authRegistry });
             if (authenticated.clientId !== this.#options.clientId) throw new Error("client identity mismatch");
         } catch {
-            const error = new Error("AUTHENTICATION_FAILED"); Object.assign(error, { code: "AUTHENTICATION_FAILED" }); throw error;
+            throw new ServiceFailure("AUTHENTICATION_FAILED");
         }
         if (!this.#options.readiness.snapshot().ready) throw new ServiceUnavailableError("NOT_READY");
         return this.#options.scheduler.run(async (capability) => {
@@ -149,31 +150,33 @@ export class VerifyReleaseService {
                 // Recheck under the acquired capability, before any authentication nonce write.
                 if (!this.#options.readiness.snapshot().ready) throw new ServiceUnavailableError("NOT_READY");
                 const admissionNowMs = (this.#options.now?.() ?? new Date()).getTime();
-                if (!Number.isSafeInteger(admissionNowMs)) { const error = new Error("AUTHENTICATION_FAILED"); Object.assign(error, { code: "AUTHENTICATION_FAILED" }); throw error; }
+                if (!Number.isSafeInteger(admissionNowMs)) { throw new ServiceFailure("AUTHENTICATION_FAILED"); }
                 try {
                     authenticateRequest({ request, method: this.#options.authMethod ?? "POST", path: this.#options.authPath ?? "/v1/verify-release", headers: capturedHeaders, nowMs: admissionNowMs, maximumSkewMs: this.#options.maximumAuthSkewMs!, registry: this.#options.authRegistry });
                 } catch {
-                    const error = new Error("AUTHENTICATION_FAILED"); Object.assign(error, { code: "AUTHENTICATION_FAILED" }); throw error;
+                    throw new ServiceFailure("AUTHENTICATION_FAILED");
                 }
                 try {
                     await this.#options.nonceStore.consume({ version: 1, clientId: authenticated.clientId, keyId: authenticated.keyId, nonce: authenticated.nonce, timestampMs: authenticated.timestampMs, bodyDigest: authenticated.bodyDigest, retainedUntilMs: authenticated.timestampMs + (this.#options.maximumAuthSkewMs ?? 60_000) + 1 } satisfies NonceRecord);
                 } catch (cause) {
-                    if (cause instanceof Error && /replay/u.test(cause.message)) { const error = new Error("REPLAY_DETECTED"); Object.assign(error, { code: "REPLAY_DETECTED" }); throw error; }
+                    if (cause instanceof Error && /replay/u.test(cause.message)) { throw new ServiceFailure("REPLAY_DETECTED"); }
                     throw cause;
                 }
                 return await this.#process(capability, request, signal, admittedBytes);
             }
             catch (error) {
-                if (!(error instanceof ServiceUnavailableError) && !(error instanceof Error && (error.message === "idempotency-key digest conflict" || error.message === "AUTHENTICATION_FAILED" || error.message === "REPLAY_DETECTED")))
-                    this.#failRecovery();
+                if (error instanceof IdempotencyConflict) throw new ServiceFailure("IDEMPOTENCY_CONFLICT");
+                if (!(error instanceof ServiceUnavailableError) && !(error instanceof Error && (error.message === "AUTHENTICATION_FAILED" || error.message === "REPLAY_DETECTED")))
+                    this.#failRecovery(error);
                 throw error;
             }
         }, signal).catch((error: unknown) => {
             // Coordinator acquisition can fail before the callback executes. Admission
             // errors are non-mutating; unknown root-authority failures latch readiness.
+            if (error instanceof ServiceFailure && error.code === "IDEMPOTENCY_CONFLICT") throw error;
             if (error instanceof ServiceUnavailableError ||
-                (error instanceof Error && (error instanceof AdmissionError || error.message === "AUTHENTICATION_FAILED" || error.message === "REPLAY_DETECTED" || error.message === "idempotency-key digest conflict"))) throw error;
-            return this.#failRecovery();
+                (error instanceof Error && (error instanceof AdmissionError || error.message === "AUTHENTICATION_FAILED" || error.message === "REPLAY_DETECTED"))) throw error;
+            return this.#failRecovery(error);
         });
     }
     async #process(capability: MutationCapability, request: ParsedServiceRequest, signal?: AbortSignal, admittedBytes?: Buffer): Promise<ServiceResponse> {
@@ -202,13 +205,14 @@ export class VerifyReleaseService {
         }
         return recoverServiceTransaction(this.#options, this.#options.durable, capability, state, now, signal);
     }
-    #failRecovery(): never {
+    #failRecovery(error?: unknown): never {
         this.#recoveryFailure = "RECOVERY_REQUIRED";
         this.#options.readiness.fail("RECOVERY_REQUIRED");
         try {
             this.#options.onRecoveryFailure?.("RECOVERY_REQUIRED");
         }
         catch { /* readiness callbacks must not expose internal errors */ }
+        if (error instanceof ServiceFailure) throw error;
         throw new ServiceUnavailableError("RECOVERY_REQUIRED");
     }
 }

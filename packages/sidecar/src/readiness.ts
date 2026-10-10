@@ -47,5 +47,6 @@ export class Readiness {
 
   #assertCode(code: string): void {
     if (!REASON_CODE.test(code)) throw new Error("invalid readiness reason code");
+    if (!this.#healthy.has(code) && this.#healthy.size >= MAX_REASONS) throw new Error("too many readiness reason codes");
   }
 }

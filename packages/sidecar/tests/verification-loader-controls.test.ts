@@ -15,7 +15,7 @@ const probes={
 it.each(Object.keys(probes))('fresh source loader preserves %s or fails closed',async kind=>{
  const repo=fileURLToPath(new URL('../../../',import.meta.url)),parent=join(repo,'dist');await mkdir(parent,{recursive:true});const scratch=await mkdtemp(join(parent,'task8-loader-control-'));
  try{
-  for(const name of ['verification-runner','verification-worker','trusted-context','bundle','protocol','path-boundary'])await writeFile(join(scratch,name+'.ts'),await readFile(new URL('../src/'+name+'.ts',import.meta.url),'utf8'));
+  for(const name of ['verification-runner','verification-worker','trusted-context','bundle','service-failure','protocol','path-boundary'])await writeFile(join(scratch,name+'.ts'),await readFile(new URL('../src/'+name+'.ts',import.meta.url),'utf8'));
   const worker=join(scratch,'verification-worker.ts');await writeFile(worker,probes[kind as keyof typeof probes]+'\n'+await readFile(worker,'utf8'));
   const runnerPath=join(scratch,'verification-runner.ts');let source=await readFile(runnerPath,'utf8');
   if(kind==='api-absence'){expect(source).toContain("typeof nodeModule.stripTypeScriptTypes==='function'");source=source.replace("typeof nodeModule.stripTypeScriptTypes==='function'","false");}

@@ -1,3 +1,4 @@
+export class IdempotencyConflict extends Error { constructor(){super("IDEMPOTENCY_CONFLICT");this.name="IdempotencyConflict";} }
 import { createHash } from "node:crypto";
 import { canonicalJson } from "@agent-integrity/core";
 import { DurableJsonDirectory, DurableRecordExistsError, type DurableJsonOptions } from "./durable-json.js";
@@ -109,7 +110,7 @@ export class RequestStore {
       const state = parseRequestState(tombstone);
       if (state.phase !== "tombstone") throw new Error("request tombstone is invalid");
       if (state.clientId !== clientId || state.storeGeneration !== storeGeneration || state.idempotencyKeyHash !== sha(idempotencyKey)) throw new Error("tombstone binding identity mismatch");
-      if (state.requestDigest !== requestDigest) throw new Error("idempotency-key digest conflict");
+      if (state.requestDigest !== requestDigest) throw new IdempotencyConflict();
       await this.#root.ensurePublished(`tombstones/${bindingKey}.json`, state);
       return state;
     }
@@ -117,7 +118,7 @@ export class RequestStore {
     if (binding === undefined) return undefined;
     const actual = bindingRecord(binding);
     if (actual.clientId !== clientId || actual.storeGeneration !== storeGeneration || actual.idempotencyKeyHash !== sha(idempotencyKey)) throw new Error("request binding identity mismatch");
-    if (actual.requestDigest !== requestDigest) throw new Error("idempotency-key digest conflict");
+    if (actual.requestDigest !== requestDigest) throw new IdempotencyConflict();
     const current = await this.#current(bindingKey);
     if (current === undefined) throw new Error("ambiguous request state: binding exists without a phase record");
     return current;

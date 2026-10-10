@@ -429,13 +429,24 @@ function validateReceipt(value: unknown, limits: ResponseLimits): AlphaIntegrity
   return receipt as unknown as AlphaIntegrityReceipt;
 }
 
-function validateLimits(limits: ResponseLimits): void {
-  serviceRequestDigest(limits.request);
+/** Independent private wire ceilings: base64 plus signed wrapper metadata is
+ * bounded separately from the exact decoded bytes that may be released. */
+export const RESPONSE_HARD_CEILINGS = Object.freeze({
+  maxBodyBytes: 32 * 1024 * 1024,
+  maxFindings: 10_000,
+  maxFindingBytes: 1024 * 1024,
+  maxReleasedResponseBytes: 16 * 1024 * 1024,
+});
+export function assertResponseLimitBounds(limits: Omit<ResponseLimits, "request">): void {
   const integers = [limits.maxBodyBytes, limits.maxFindings, limits.maxFindingBytes, limits.maxReleasedResponseBytes];
   if (!integers.every((value) => Number.isSafeInteger(value) && value > 0)) throw new TypeError("response limits are invalid");
-  if (limits.maxBodyBytes > 32 * 1024 * 1024 || limits.maxFindings > 10_000 || limits.maxFindingBytes > 1024 * 1024 || limits.maxReleasedResponseBytes > 16 * 1024 * 1024) {
+  if (limits.maxBodyBytes > RESPONSE_HARD_CEILINGS.maxBodyBytes || limits.maxFindings > RESPONSE_HARD_CEILINGS.maxFindings || limits.maxFindingBytes > RESPONSE_HARD_CEILINGS.maxFindingBytes || limits.maxReleasedResponseBytes > RESPONSE_HARD_CEILINGS.maxReleasedResponseBytes) {
     throw new TypeError("response limits exceed hard ceilings");
   }
+}
+function validateLimits(limits: ResponseLimits): void {
+  serviceRequestDigest(limits.request);
+  assertResponseLimitBounds(limits);
 }
 
 function validateRequestId(value: unknown, limits: ResponseLimits): void {
