@@ -6,9 +6,11 @@ import {
   buildReceipt,
   FileReceiptStore,
   ReceiptOutputBoundary,
+  recheckTrustedReceipt,
+  validateTrustedReceipt,
   verifyTrustedEnvelope,
 } from "../../src/index.js";
-import { receiptSigningOptions } from "../support/receipt-keys.js";
+import { receiptSigningOptions, receiptTrust } from "../support/receipt-keys.js";
 import { trustedEnvelopeFixture } from "../support/trusted-envelope.js";
 
 async function fixture(runId = "recovery-run", nonce = "recovery-nonce") {
@@ -47,6 +49,33 @@ describe("deterministic receipt construction", () => {
 });
 
 describe("receipt recovery inspection", () => {
+  it("validates a fresh trusted receipt without a store, while ordinary recheck still requires consumption", async () => {
+    const { envelope, context } = await trustedEnvelopeFixture();
+    const { receipt } = await fixture("pure-validation", "pure-validation-nonce");
+    const trust = { ...receiptTrust, trustedPolicy: context.trustedPolicy };
+    const module = await import("../../src/index.js");
+    expect(typeof module.validateTrustedReceipt).toBe("function");
+
+    const validated = await validateTrustedReceipt({
+      receipt,
+      envelope,
+      now: new Date("2026-08-02T00:30:00.000Z"),
+      trust,
+      context,
+    });
+    expect(validated.status).toBe("PASS");
+
+    const ordinary = await recheckTrustedReceipt({
+      receipt,
+      envelope,
+      now: new Date("2026-08-02T00:30:00.000Z"),
+      trust,
+      context,
+    });
+    expect(ordinary.status).toBe("BLOCKED");
+    expect(ordinary.findings.some((finding) => finding.code === "receipt.store_required")).toBe(true);
+  });
+
   it("requires and preserves one caller-supplied transaction identity", async () => {
     const directory = await mkdtemp(join(tmpdir(), "receipt-recovery-"));
     const store = new FileReceiptStore(join(directory, "store"), { maxRecords: 3 });

@@ -51,6 +51,7 @@ function parseSerializedIdentity(value: unknown): SerializedIdentity {
 export class DurableJsonDirectory {
   readonly #directory: string;
   readonly #options: DurableJsonOptions;
+  #initialized = false;
   #rootIdentity: Identity | undefined;
   #parentIdentity: Identity | undefined;
   #childIdentities: ReadonlyMap<string, Identity> | undefined;
@@ -66,18 +67,34 @@ export class DurableJsonDirectory {
   get path(): string { return this.#directory; }
 
   async initialize(subdirectories: readonly string[]): Promise<void> {
+    if (this.#initialized && (new Set(subdirectories).size !== subdirectories.length || [...subdirectories].sort().join(",") !== [...this.#childIdentities!.keys()].sort().join(","))) throw new Error("durable state child directory set changed");
     const parent = dirname(this.#directory);
     const parentBefore = await this.#inspectDirectory(parent, false);
     let rootCreated = false;
-    try { await mkdir(this.#directory, { mode: 0o700 }); rootCreated = true; }
-    catch (error) { if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error; }
+    if (!this.#initialized) {
+      try { await mkdir(this.#directory, { mode: 0o700 }); rootCreated = true; }
+      catch (error) { if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error; }
+    }
     if (rootCreated) await chmod(this.#directory, 0o700);
     const root = await this.#inspectDirectory(this.#directory, true);
     const parentAfter = await this.#inspectDirectory(parent, false);
     if (!sameIdentity(parentBefore, parentAfter)) throw new Error("durable state parent identity was replaced");
     if (this.#rootIdentity !== undefined && (!sameIdentity(this.#rootIdentity, root) || !sameIdentity(this.#parentIdentity!, parentAfter))) throw new Error("durable state root or parent identity was replaced");
     const children = new Map<string, Identity>();
-    for (const name of subdirectories) {
+    if (this.#initialized) {
+      // Repeat initialization still obtains every identity afresh; only independent
+      // read-only children overlap, and failed batches drain before returning.
+      for (let offset = 0; offset < subdirectories.length; offset += 4) {
+        const checked = await Promise.allSettled(subdirectories.slice(offset, offset + 4).map(async name => {
+          if (!/^[a-z][a-z0-9-]*$/u.test(name)) throw new TypeError("invalid durable state directory name");
+          return [name, await this.#inspectDirectory(join(this.#directory, name), true)] as const;
+        }));
+        for (const value of checked) {
+          if (value.status === "rejected") throw value.reason;
+          children.set(value.value[0], value.value[1]);
+        }
+      }
+    } else for (const name of subdirectories) {
       if (!/^[a-z][a-z0-9-]*$/u.test(name)) throw new TypeError("invalid durable state directory name");
       const child = join(this.#directory, name);
       let childCreated = false;
@@ -87,6 +104,10 @@ export class DurableJsonDirectory {
       children.set(name, await this.#inspectDirectory(child, true));
     }
     await this.#verifyOrCreateIdentityAnchor(parentAfter, root, children);
+    if (!this.#initialized) {
+      for (const name of children.keys()) await this.#syncDirectory(join(this.#directory, name));
+      await this.#syncDirectory(this.#directory);
+    }
     if (this.#rootIdentity === undefined) {
       this.#rootIdentity = root;
       this.#parentIdentity = parentAfter;
@@ -98,18 +119,26 @@ export class DurableJsonDirectory {
       }
     }
     await this.assertIdentity();
+    this.#initialized = true;
   }
 
   async assertIdentity(): Promise<void> {
     if (this.#rootIdentity === undefined || this.#parentIdentity === undefined || this.#childIdentities === undefined) throw new Error("durable state root is not initialized");
-    const [root, parent] = await Promise.all([
-      this.#inspectDirectory(this.#directory, true),
-      this.#inspectDirectory(dirname(this.#directory), false),
-    ]);
-    if (!sameIdentity(this.#rootIdentity, root) || !sameIdentity(this.#parentIdentity, parent)) throw new Error("durable state root or parent identity was replaced");
-    for (const [name, expected] of this.#childIdentities) {
-      const actual = await this.#inspectDirectory(join(this.#directory, name), true);
-      if (!sameIdentity(expected, actual)) throw new Error("durable state child directory identity was replaced");
+    // Root, parent and pinned children are independent fresh read-only guards.
+    // Fill the same four-inspection cap without a separate two-slot root barrier.
+    // Drain every started inspection before checking results or rejecting.
+    const directories = [
+      { path: this.#directory, private: true, expected: this.#rootIdentity, message: "durable state root or parent identity was replaced" },
+      { path: dirname(this.#directory), private: false, expected: this.#parentIdentity, message: "durable state root or parent identity was replaced" },
+      ...[...this.#childIdentities].map(([name, expected]) => ({ path: join(this.#directory, name), private: true, expected, message: "durable state child directory identity was replaced" })),
+    ];
+    for (let offset = 0; offset < directories.length; offset += 4) {
+      const batch = directories.slice(offset, offset + 4);
+      const checked = await Promise.allSettled(batch.map(async guard => {
+        const actual = await this.#inspectDirectory(guard.path, guard.private);
+        if (!sameIdentity(guard.expected, actual)) throw new Error(guard.message);
+      }));
+      for (const result of checked) if (result.status === "rejected") throw result.reason;
     }
   }
 
@@ -139,7 +168,7 @@ export class DurableJsonDirectory {
       try { await link(temporary, target); }
       catch (error) {
         if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
-          await this.#validateExistingNode(target);
+          await this.ensurePublished(relativePath, value);
           throw new DurableRecordExistsError();
         }
         throw error;
@@ -153,6 +182,42 @@ export class DurableJsonDirectory {
       await handle.close();
       if (temporaryExists) await rm(temporary, { force: true });
     }
+  }
+
+  // Internal equivalent-publication barrier. Existing visibility is not durability.
+  // Exact serialized bytes, fresh FD/path guards, and ancestor entries precede acceptance.
+  async ensurePublished(relativePath: string, value: unknown): Promise<void> {
+    await this.assertIdentity();
+    const path = this.resolve(relativePath);
+    const expected = Buffer.from(JSON.stringify(value) + "\n", "utf8");
+    if (expected.length > this.#options.maxStateBytes) throw new Error("durable state exceeds configured limit");
+    await this.#validateExistingNode(path);
+    const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      await this.#validateOpenFile(handle, "existing durable record");
+      const before = await handle.stat({ bigint: true });
+      if (before.size > BigInt(this.#options.maxStateBytes)) throw new Error("durable state exceeds configured limit");
+      const buffer = Buffer.alloc(this.#options.maxStateBytes + 1);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      if (bytesRead !== Number(before.size) || !buffer.subarray(0, bytesRead).equals(expected)) throw new DurableRecordExistsError();
+      const guard = async () => {
+        await this.#validateOpenFile(handle, "existing durable record");
+        await this.#validateExistingNode(path);
+        const after = await handle.stat({ bigint: true }), node = await lstat(path, { bigint: true });
+        if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || node.dev !== before.dev || node.ino !== before.ino || node.size !== before.size || node.mtimeNs !== before.mtimeNs || node.ctimeNs !== before.ctimeNs) throw new Error("existing durable record identity changed");
+        await this.assertIdentity();
+      };
+      await guard();
+      await this.#options.faultInjector?.("file:before-sync");
+      await handle.sync();
+      let directory = dirname(path);
+      while (true) {
+        await this.#syncDirectory(directory);
+        if (directory === dirname(this.#directory)) break;
+        directory = dirname(directory);
+      }
+      await guard();
+    } finally { await handle.close(); }
   }
 
   async read(relativePath: string): Promise<unknown> {
@@ -238,7 +303,8 @@ export class DurableJsonDirectory {
       children: Object.fromEntries([...children.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([name, value]) => [name, serializeIdentity(value)])),
     };
     const path = this.#identityAnchorPath();
-    try {
+    // A successful initialization pins existing authority, never repairs missing anchors.
+    if (!this.#initialized) try {
       const handle = await open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW, 0o600);
       try {
         await handle.chmod(0o600);
@@ -252,30 +318,42 @@ export class DurableJsonDirectory {
       if ((error as NodeJS.ErrnoException)?.code !== "EEXIST") throw error;
     }
     const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    let parsed: unknown;
     try {
-      await this.#validateOpenFile(handle, "durable state identity anchor");
-      const info = await handle.stat();
-      if (info.size > 64 * 1024) throw new Error("durable state identity anchor is invalid");
-      const buffer = Buffer.alloc(Number(info.size) + 1);
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      if (bytesRead !== info.size) throw new Error("durable state identity anchor is invalid");
-      parsed = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
-    } catch { throw new Error("durable state identity anchor is invalid"); }
-    finally { await handle.close(); }
-    const record = plainRecord(parsed, "durable state identity anchor is invalid");
-    if (Object.keys(record).sort().join(",") !== "children,directory,parent,root,version" || record.version !== 1 || record.directory !== this.#directory) throw new Error("durable state identity anchor is invalid");
-    const expectedParent = parseSerializedIdentity(record.parent);
-    const expectedRoot = parseSerializedIdentity(record.root);
-    if (!sameSerializedIdentity(expectedParent, parent) || !sameSerializedIdentity(expectedRoot, root)) throw new Error("durable state root or parent identity was replaced");
-    const childRecord = plainRecord(record.children, "durable state identity anchor is invalid");
-    if (Object.keys(childRecord).sort().join(",") !== [...children.keys()].sort().join(",")) throw new Error("durable state child directory identity was replaced");
-    for (const [name, actual] of children) {
-      if (!sameSerializedIdentity(parseSerializedIdentity(childRecord[name]), actual)) throw new Error("durable state child directory identity was replaced");
-    }
+      let parsed: unknown;
+      try {
+        await this.#validateOpenFile(handle, "durable state identity anchor");
+        const info = await handle.stat();
+        if (info.size > 64 * 1024) throw new Error("durable state identity anchor is invalid");
+        const buffer = Buffer.alloc(Number(info.size) + 1);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        if (bytesRead !== info.size) throw new Error("durable state identity anchor is invalid");
+        const after = await handle.stat();
+        const node = await lstat(path);
+        if (info.dev !== after.dev || info.ino !== after.ino || info.size !== after.size || info.mtimeMs !== after.mtimeMs || info.ctimeMs !== after.ctimeMs || node.isSymbolicLink() || node.dev !== info.dev || node.ino !== info.ino || node.nlink !== 1 || (node.mode & 0o777) !== 0o600 || node.uid !== info.uid) throw new Error("durable state identity anchor changed");
+        parsed = JSON.parse(buffer.subarray(0, bytesRead).toString("utf8"));
+      } catch { throw new Error("durable state identity anchor is invalid"); }
+      const record = plainRecord(parsed, "durable state identity anchor is invalid");
+      if (Object.keys(record).sort().join(",") !== "children,directory,parent,root,version" || record.version !== 1 || record.directory !== this.#directory) throw new Error("durable state identity anchor is invalid");
+      const expectedParent = parseSerializedIdentity(record.parent);
+      const expectedRoot = parseSerializedIdentity(record.root);
+      if (!sameSerializedIdentity(expectedParent, parent) || !sameSerializedIdentity(expectedRoot, root)) throw new Error("durable state root or parent identity was replaced");
+      const childRecord = plainRecord(record.children, "durable state identity anchor is invalid");
+      if (Object.keys(childRecord).sort().join(",") !== [...children.keys()].sort().join(",")) throw new Error("durable state child directory identity was replaced");
+      for (const [name, actual] of children) {
+        if (!sameSerializedIdentity(parseSerializedIdentity(childRecord[name]), actual)) throw new Error("durable state child directory identity was replaced");
+      }
+      // Existence after an interrupted first initialization is not durability.
+      // Sync the fully validated open anchor and its parent before pinning success.
+      if (!this.#initialized) {
+        await handle.sync();
+        await this.#syncDirectory(dirname(path));
+      }
+    } finally { await handle.close(); }
   }
 
   async #syncDirectory(path: string): Promise<void> {
+    const requirePrivate = path !== dirname(this.#directory);
+    const before = await this.#inspectDirectory(path, requirePrivate);
     await this.#options.faultInjector?.("directory:before-sync");
     let handle;
     try {
@@ -286,8 +364,11 @@ export class DurableJsonDirectory {
       throw error;
     }
     try {
+      const opened = await handle.stat();
+      if (!opened.isDirectory() || BigInt(opened.dev) !== before.dev || BigInt(opened.ino) !== before.ino || opened.uid !== before.uid) throw new Error("durable sync directory identity changed");
       await this.#options.faultInjector?.("directory:sync");
       await handle.sync();
+      if (!sameIdentity(before, await this.#inspectDirectory(path, requirePrivate))) throw new Error("durable sync directory identity changed");
     } catch (error) {
       if (!["EINVAL", "ENOTSUP", "EISDIR"].includes((error as NodeJS.ErrnoException)?.code ?? "")) throw error;
     } finally { await handle.close(); }

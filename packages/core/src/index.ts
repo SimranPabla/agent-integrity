@@ -17,4 +17,9 @@ export * from "./receipts/build-receipt.js";
 export * from "./receipts/recheck-receipt.js";
 export * from "./receipts/file-receipt-store.js";
 export * from "./receipts/receipt-output-boundary.js";
-export { parseAlphaIntegrityReceipt, type ConsumedReceiptRecord } from "./receipts/receipt-store-records.js";
+export {
+  parseAlphaIntegrityReceipt,
+  type ClosedReceiptRecord,
+  type ConsumedReceiptRecord,
+  type IssuedReceiptRecord,
+} from "./receipts/receipt-store-records.js";

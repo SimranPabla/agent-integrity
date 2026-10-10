@@ -17,7 +17,7 @@ interface VerificationFields {
   readonly verificationDigest: string; readonly verification: IntegrityResult;
 }
 interface PreparedFields {
-  readonly signingTime: string; readonly trustSnapshotObjectId: string;
+  readonly issuer: string; readonly signingTime: string; readonly trustSnapshotObjectId: string;
   readonly trustSnapshotDigest: string; readonly keyId: string; readonly publicKeyDigest: string;
   readonly runId: string; readonly receiptNonce: string; readonly createdAt: string; readonly expiresAt: string;
   readonly audience: string; readonly purpose: string; readonly engineVersion: string; readonly maxLifetimeMs: number;
@@ -51,7 +51,7 @@ export type ActiveRequestState = Exclude<RequestState, TombstoneState>;
 
 const COMMON = ["clientId", "idempotencyKeyHash", "phase", "requestDigest", "requestId", "requestObjectId", "storeGeneration", "transactionId", "version"];
 const VERIFIED = ["envelopeDigest", "snapshotId", "verification", "verificationDigest"];
-const PREPARED = ["audience", "createdAt", "engineVersion", "expiresAt", "keyId", "maxLifetimeMs", "publicKeyDigest", "purpose", "receiptNonce", "receiptOutputName", "receiptOutputRootIdentity", "runId", "signingTime", "trustSnapshotDigest", "trustSnapshotObjectId", "trustedContextDigest"];
+const PREPARED = ["audience", "createdAt", "engineVersion", "expiresAt", "issuer", "keyId", "maxLifetimeMs", "publicKeyDigest", "purpose", "receiptNonce", "receiptOutputName", "receiptOutputRootIdentity", "runId", "signingTime", "trustSnapshotDigest", "trustSnapshotObjectId", "trustedContextDigest"];
 
 function plain(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new Error(`${label} is invalid`);
@@ -139,6 +139,7 @@ export function parseRequestState(value: unknown): RequestState {
     for (const field of ["signingTime", "createdAt", "expiresAt"] as const) iso(state[field], field);
     for (const field of ["trustSnapshotObjectId", "trustSnapshotDigest", "publicKeyDigest", "receiptOutputRootIdentity", "trustedContextDigest"] as const) digest(state[field], field);
     for (const field of ["keyId", "runId", "receiptNonce", "audience", "purpose", "engineVersion", "receiptOutputName"] as const) safe(state[field], field);
+    if (typeof state.issuer !== "string" || state.issuer.length === 0 || Buffer.byteLength(state.issuer, "utf8") > 256 || /[\u0000-\u001f\u007f]/u.test(state.issuer)) throw new Error("issuer is invalid");
     if (!Number.isSafeInteger(state.maxLifetimeMs) || (state.maxLifetimeMs as number) < 1) throw new Error("maxLifetimeMs is invalid");
     if (state.preparedResponse !== undefined) { const prepared = plain(state.preparedResponse, "preparedResponse"); exact(prepared, ["bytes", "sha256"], "preparedResponse"); if (typeof prepared.bytes !== "string") throw new Error("preparedResponse is invalid"); digest(prepared.sha256, "preparedResponse.sha256"); }
   }
@@ -152,6 +153,7 @@ export function parseRequestState(value: unknown): RequestState {
 export function requestStateDigest(state: RequestState): string { return createHash("sha256").update(canonicalJson(parseRequestState(state)), "utf8").digest("hex"); }
 
 export function assertTransition(previous: ActiveRequestState, next: ActiveRequestState): void {
+  parseRequestState(previous); parseRequestState(next);
   const allowed: Readonly<Record<string, readonly string[]>> = {
     reserved: ["verified"], verified: ["receipt-prepared"], "receipt-prepared": ["receipt-issued"],
     "receipt-issued": previous.phase === "receipt-issued" && previous.verification.status === "PASS" ? ["pass-consumed", "release-refused"] : ["result-committed"],
@@ -160,4 +162,24 @@ export function assertTransition(previous: ActiveRequestState, next: ActiveReque
   if (!allowed[previous.phase]?.includes(next.phase)) throw new Error(`invalid request-state transition: ${previous.phase} -> ${next.phase}`);
   for (const field of ["clientId", "storeGeneration", "idempotencyKeyHash", "requestDigest", "requestId", "transactionId", "requestObjectId"] as const)
     if (previous[field] !== next[field]) throw new Error(`request-state owner changed: ${field}`);
+  if (next.phase !== "result-committed") {
+    for (const field of [...VERIFIED, ...PREPARED, "preparedResponse", "receipt", "receiptDigest"]) {
+      const before = (previous as unknown as Record<string, unknown>)[field];
+      const after = (next as unknown as Record<string, unknown>)[field];
+      if (before !== undefined && canonicalJson(before) !== canonicalJson(after ?? null)) throw new Error(`request-state immutable field changed: ${field}`);
+    }
+    if ("receipt" in next) {
+      const receipt = next.receipt;
+      if (receipt.issuer !== next.issuer || receipt.signature.keyId !== next.keyId || receipt.runId !== next.runId || receipt.nonce !== next.receiptNonce || receipt.createdAt !== next.createdAt || receipt.expiresAt !== next.expiresAt || receipt.audience !== next.audience || receipt.purpose !== next.purpose || receipt.engineVersion !== next.engineVersion || receipt.envelopeDigest !== next.envelopeDigest || canonicalJson(receipt.verification) !== canonicalJson(next.verification)) throw new Error("receipt preparation binding mismatch");
+    }
+  } else if ("receipt" in previous) {
+    const response = next.response as unknown as Record<string, unknown>;
+    const expectedOutcome = previous.phase === "release-refused" ? "RELEASE_REFUSED" : previous.verification.status;
+    if (next.outcome !== expectedOutcome || next.receiptExpiresAt !== previous.receipt.expiresAt || canonicalJson(response.receipt ?? null) !== canonicalJson(previous.receipt) || canonicalJson(response.verification ?? null) !== canonicalJson(previous.verification)) throw new Error("terminal response contradicts durable receipt branch");
+    if (previous.phase === "pass-consumed" && previous.preparedResponse !== undefined) {
+      const released = response.releasedResponse as { bytes?: unknown; sha256?: unknown } | undefined;
+      if (released?.bytes !== previous.preparedResponse.bytes || released?.sha256 !== previous.preparedResponse.sha256) throw new Error("terminal prepared response bytes changed");
+    }
+    if (previous.phase === "release-refused" && canonicalJson(next.response) !== canonicalJson(previous.response)) throw new Error("terminal refusal response changed");
+  }
 }

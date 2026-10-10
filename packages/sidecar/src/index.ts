@@ -13,3 +13,8 @@ export * from "./key-registry.js";
 export * from "./cage-trust-manifest.js";
 export { loadTrustedVerificationContext, parseVerificationInput, type VerificationInput, type VerificationLimits } from "./trusted-context.js";
 export { runTrustedVerification, parseVerificationOutput, type VerificationRunResult, type VerificationRunOptions } from "./verification-runner.js";
+export * from "./scheduler.js";
+export * from "./readiness.js";
+export * from "./service.js";
+export * from "./recovery.js";
+export * from "./consumed-release-recovery.js";

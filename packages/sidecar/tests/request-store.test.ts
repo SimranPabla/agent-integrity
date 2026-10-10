@@ -1,6 +1,8 @@
+import { allowDiskIntegrationTime } from "./support/disk-integration-timeout.js";
+allowDiskIntegrationTime();
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -13,6 +15,7 @@ import {
   StateCoordinator,
   parseRequestState,
   requestStateDigest,
+  assertTransition,
 } from "../src/index.js";
 
 const sha = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
@@ -31,7 +34,7 @@ function receipt(status: "PASS" | "REVIEW") {
 }
 function preparedFields(status: "PASS" | "REVIEW") {
   return {
-    phase: "receipt-prepared" as const, signingTime: "2026-09-29T16:00:00.000Z", trustSnapshotObjectId: sha("trust"),
+    phase: "receipt-prepared" as const, issuer: "issuer-1", signingTime: "2026-09-29T16:00:00.000Z", trustSnapshotObjectId: sha("trust"),
     trustSnapshotDigest: sha("trust"), keyId: "key-1", publicKeyDigest: sha("public-key"), runId: `run-${status.toLowerCase()}`,
     receiptNonce: `nonce-${status.toLowerCase()}`, createdAt: "2026-09-29T16:00:00.000Z", expiresAt: "2026-09-29T17:00:00.000Z",
     audience: "cage", purpose: "response-release", engineVersion: "0.1.0-alpha.2", maxLifetimeMs: 3_600_000,
@@ -43,7 +46,7 @@ async function harness(generation = "generation-1") {
   const root = await mkdtemp(join(tmpdir(), "sidecar-request-store-"));
   const coordinator = await StateCoordinator.acquire(join(root, "state"), {
     storeGeneration: generation,
-    nestedLockNames: ["receipt-store"],
+    nestedLockNames: ["receipt-store"], nestedLockPaths: { "receipt-store": "receipts/.store-lock.json" },
   });
   const objects = new PrivateObjectStore(join(root, "objects"));
   const requests = new RequestStore(join(root, "requests"), objects, { maxRecords: 8 });
@@ -183,7 +186,7 @@ describe("idempotency and private request objects", () => {
 
   it("fails closed at capacity and before publishing a binding on object-sync failure", async () => {
     const root = await mkdtemp(join(tmpdir(), "sidecar-request-limits-"));
-    const coordinator = await StateCoordinator.acquire(join(root, "state"), { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"] });
+    const coordinator = await StateCoordinator.acquire(join(root, "state"), { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"], nestedLockPaths: { "receipt-store": "receipts/.store-lock.json" } });
     const objects = new PrivateObjectStore(join(root, "objects"));
     const requests = new RequestStore(join(root, "requests"), objects, { maxRecords: 1 });
     await coordinator.withMutation(async (capability) => {
@@ -194,7 +197,7 @@ describe("idempotency and private request objects", () => {
     await coordinator.close();
 
     const faultRoot = await mkdtemp(join(tmpdir(), "sidecar-request-fault-"));
-    const faultCoordinator = await StateCoordinator.acquire(join(faultRoot, "state"), { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"] });
+    const faultCoordinator = await StateCoordinator.acquire(join(faultRoot, "state"), { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"], nestedLockPaths: { "receipt-store": "receipts/.store-lock.json" } });
     const faultObjects = new PrivateObjectStore(join(faultRoot, "objects"), { faultInjector: (point) => { if (point === "file:before-sync") throw new Error("injected object sync failure"); } });
     const faultRequests = new RequestStore(join(faultRoot, "requests"), faultObjects);
     await expect(faultCoordinator.withMutation((capability) => faultRequests.reserve(capability, reservationInput()))).rejects.toThrow(/injected object sync failure/u);
@@ -207,10 +210,10 @@ describe("state-root ownership", () => {
   it("rejects a second process owner and never steals the existing lease", async () => {
     const root = await mkdtemp(join(tmpdir(), "sidecar-coordinator-"));
     const path = join(root, "state");
-    const first = await StateCoordinator.acquire(path, { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"] });
-    await expect(StateCoordinator.acquire(path, { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"] })).rejects.toThrow(/lease|owned|exists/u);
+    const first = await StateCoordinator.acquire(path, { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"], nestedLockPaths: { "receipt-store": "receipts/.store-lock.json" } });
+    await expect(StateCoordinator.acquire(path, { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"], nestedLockPaths: { "receipt-store": "receipts/.store-lock.json" } })).rejects.toThrow(/lease|owned|exists/u);
     const moduleUrl = pathToFileURL(join(process.cwd(), "packages", "sidecar", "dist", "index.js")).href;
-    const child = `import { StateCoordinator } from ${JSON.stringify(moduleUrl)}; try { const owner = await StateCoordinator.acquire(process.argv[1], { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"] }); await owner.close(); process.exit(2); } catch (error) { if (!/lease|owned|exists/u.test(String(error?.message))) throw error; }`;
+    const child = `import { StateCoordinator } from ${JSON.stringify(moduleUrl)}; try { const owner = await StateCoordinator.acquire(process.argv[1], { storeGeneration: "generation-1", nestedLockNames: ["receipt-store"], nestedLockPaths: { "receipt-store": "receipts/.store-lock.json" } }); await owner.close(); process.exit(2); } catch (error) { if (!/lease|owned|exists/u.test(String(error?.message))) throw error; }`;
     await expect(execFileAsync(process.execPath, ["--input-type=module", "--eval", child, path])).resolves.toMatchObject({ stderr: "" });
     await first.close();
   });
@@ -218,14 +221,16 @@ describe("state-root ownership", () => {
   it("requires exact prior ownership and the complete lock inventory for offline handoff", async () => {
     const root = await mkdtemp(join(tmpdir(), "sidecar-coordinator-recovery-"));
     const path = join(root, "state");
-    const first = await StateCoordinator.acquire(path, { storeGeneration: "generation-1", nestedLockNames: ["nonce-store", "receipt-store"] });
+    const first = await StateCoordinator.acquire(path, { storeGeneration: "generation-1", nestedLockNames: ["nonce-store", "receipt-store"], nestedLockPaths: { "nonce-store": "nonces/.store-lock.json", "receipt-store": "receipts/.store-lock.json" } });
+    await mkdir(join(path, "receipts"), { mode: 0o700, recursive: true });
+    await mkdir(join(path, "nonces"), { mode: 0o700, recursive: true });
     const ownership = await first.withMutation((capability) => first.receiptStoreLockOwnership(capability));
     await expect(StateCoordinator.recoverAbandoned(path, {
       offlineExclusive: true,
       expectedOwnerToken: ownership.ownerToken,
       expectedRootIdentityDigest: ownership.rootIdentityDigest,
       storeGeneration: ownership.storeGeneration,
-      nestedLockNames: ["receipt-store"],
+      nestedLockNames: ["receipt-store"], nestedLockPaths: { "receipt-store": "receipts/.store-lock.json" },
     })).rejects.toThrow(/inventory|mismatch/u);
     const recovered = await StateCoordinator.recoverAbandoned(path, {
       offlineExclusive: true,
@@ -233,9 +238,11 @@ describe("state-root ownership", () => {
       expectedRootIdentityDigest: ownership.rootIdentityDigest,
       nextOwnerToken: "recovered-owner",
       storeGeneration: ownership.storeGeneration,
-      nestedLockNames: ["nonce-store", "receipt-store"],
+      nestedLockNames: ["nonce-store", "receipt-store"], nestedLockPaths: { "nonce-store": "nonces/.store-lock.json", "receipt-store": "receipts/.store-lock.json" },
     });
     await expect(first.withMutation(() => undefined)).rejects.toThrow(/ownership changed/u);
+    await expect(recovered.withMutation((capability) => recovered.receiptStoreLockOwnership(capability))).rejects.toThrow(/complete|handoff/u);
+    await recovered.withMutation((capability) => recovered.completeNestedLockHandoff(capability));
     await expect(recovered.withMutation((capability) => recovered.receiptStoreLockOwnership(capability))).resolves.toMatchObject({ ownerToken: "recovered-owner" });
     await recovered.close();
   });
@@ -276,4 +283,12 @@ describe("state-root ownership", () => {
     await expect(staleStore!.cleanupStaging({ offlineExclusive: true })).rejects.toThrow(/capability|authorized/u);
     await coordinator.close();
   });
+});
+
+describe("Task8 immutable issued receipt",()=>{
+ it.each(["issuer","snapshotId","keyId","signingTime","receiptDigest"])("rejects changed %s across an issued durable phase",field=>{
+  const signed=receipt("PASS");const base={version:1,clientId:"cage",storeGeneration:"generation-1",idempotencyKeyHash:sha("idem"),requestDigest:sha(canonicalRequest),requestId:"request-1",transactionId:"tx",requestObjectId:sha(canonicalRequest),snapshotId:sha("snapshot"),envelopeDigest:sha("envelope"),verificationDigest:sha("verification"),verification:signed.verification,...preparedFields("PASS"),phase:"receipt-issued",receipt:signed,receiptDigest:signed.receiptDigest};
+  const issued=parseRequestState(base); const changed=field==="signingTime"?"2026-09-29T16:00:01.000Z":field.endsWith("Digest")||field==="snapshotId"?sha("changed"):"changed";
+  expect(()=>assertTransition(issued as never,{...base,phase:"pass-consumed",consumedMarkerDigest:sha("marker"),consumedAt:"2026-09-29T16:01:00.000Z",[field]:changed} as never)).toThrow(/immutable|binding/);
+ });
 });

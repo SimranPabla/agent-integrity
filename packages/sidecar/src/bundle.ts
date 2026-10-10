@@ -92,13 +92,15 @@ export interface BundleSnapshotOptions {
 }
 
 export interface OpenBundleSnapshotOptions {
+  readonly expectedRequest?: ParsedServiceRequest;
   readonly snapshotRoot: string;
   readonly snapshotId: string;
   readonly limits: BundleLimits;
 }
 
 interface PrivateSnapshotManifest {
-  readonly version: "1";
+  readonly version: "2";
+  readonly originalManifest: BundleManifestV1;
   readonly snapshotId: string;
   readonly incomingManifestDigest: string;
   readonly policyPath: string;
@@ -323,8 +325,26 @@ function requireManifestBindings(manifest: BundleManifestV1, request: ParsedServ
 }
 
 async function syncDirectory(path: string): Promise<void> {
+  const before = await inspectDirectory(path, "private");
   const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-  try { await handle.sync(); } finally { await handle.close(); }
+  try {
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isDirectory() || opened.dev !== before.dev || opened.ino !== before.ino || Number(opened.mode & 0o777n) !== 0o700 || (process.getuid !== undefined && opened.uid !== BigInt(process.getuid()))) throw new Error("snapshot sync directory identity changed");
+    await handle.sync();
+    if (!sameFileIdentity(before, await inspectDirectory(path, "private"))) throw new Error("snapshot sync directory identity changed");
+  } finally { await handle.close(); }
+}
+
+async function syncSnapshotTree(snapshotPath: string, files: readonly BundleFileRecord[]): Promise<void> {
+  const project = join(snapshotPath, "project");
+  const directories = new Set<string>([project]);
+  for (const file of files) {
+    let directory = dirname(join(project, file.path));
+    while (directory !== project) { directories.add(directory); directory = dirname(directory); }
+  }
+  // Child contents before parents that publish newly created child entries.
+  for (const directory of [...directories].sort((a,b)=>b.split("/").length-a.split("/").length || compareUtf8(a,b))) await syncDirectory(directory);
+  await syncDirectory(snapshotPath);
 }
 
 async function ensurePrivateDirectory(path: string): Promise<void> {
@@ -395,8 +415,13 @@ function snapshotDescriptor(root: string, manifest: PrivateSnapshotManifest): Bu
 
 function parsePrivateManifest(value: unknown, expectedSnapshotId: string, limits: BundleLimits): PrivateSnapshotManifest {
   const record = dataRecord(value, "private snapshot manifest");
-  exactKeys(record, ["allowedSourceRoots", "decisionRegistryPath", "files", "incomingManifestDigest", "policyPath", "snapshotId", "trustedConfigPath", "version"], "private snapshot manifest");
-  if (record.version !== "1" || record.snapshotId !== expectedSnapshotId || typeof record.incomingManifestDigest !== "string" || !DIGEST.test(record.incomingManifestDigest)) throw new Error("private snapshot identity is invalid");
+  exactKeys(record, ["allowedSourceRoots", "decisionRegistryPath", "files", "incomingManifestDigest", "originalManifest", "policyPath", "snapshotId", "trustedConfigPath", "version"], "private snapshot manifest");
+  if (record.version !== "2" || record.snapshotId !== expectedSnapshotId || typeof record.incomingManifestDigest !== "string" || !DIGEST.test(record.incomingManifestDigest)) throw new Error("private snapshot identity is invalid");
+  const original = dataRecord(record.originalManifest, "original bundle manifest");
+  if (Buffer.byteLength(canonicalJson(original), "utf8") > limits.maxManifestBytes) throw new Error("original manifest exceeds limit");
+  const originalManifest = parseManifestObject(original, limits, canonicalTimestamp(original.publishedAt, "publishedAt").milliseconds);
+  if (record.incomingManifestDigest !== originalManifest.manifestDigest) throw new Error("original manifest digest binding mismatch");
+  for (const field of ["policyPath", "decisionRegistryPath", "trustedConfigPath", "allowedSourceRoots", "files"] as const) if (canonicalJson(record[field]) !== canonicalJson(originalManifest[field])) throw new Error("original manifest derived field binding mismatch");
   const policyPath = assertProjectRelativePath(record.policyPath, limits.maxPathBytes);
   const decisionRegistryPath = assertProjectRelativePath(record.decisionRegistryPath, limits.maxPathBytes);
   const trustedConfigPath = assertProjectRelativePath(record.trustedConfigPath, limits.maxPathBytes);
@@ -419,14 +444,14 @@ function parsePrivateManifest(value: unknown, expectedSnapshotId: string, limits
   assertSortedUniqueUtf8(files.map(({ path }) => path), "private snapshot files");
   if (snapshotIdentity(record.incomingManifestDigest, files) !== expectedSnapshotId) throw new Error("private snapshot digest mismatch");
   for (const required of [policyPath, decisionRegistryPath, trustedConfigPath]) if (!files.some(({ path }) => path === required)) throw new Error("private snapshot required file is missing");
-  return deepFreeze({ version: "1", snapshotId: expectedSnapshotId, incomingManifestDigest: record.incomingManifestDigest, policyPath, decisionRegistryPath, trustedConfigPath, allowedSourceRoots, files });
+  return deepFreeze({ version: "2", originalManifest, snapshotId: expectedSnapshotId, incomingManifestDigest: record.incomingManifestDigest, policyPath, decisionRegistryPath, trustedConfigPath, allowedSourceRoots, files });
 }
 
 async function validatePrivateFile(path: string, record: BundleFileRecord): Promise<void> {
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const info = await handle.stat({ bigint: true });
-    if (!info.isFile() || info.nlink !== 1n || Number(info.mode & 0o777n) !== 0o600 || info.size !== BigInt(record.bytes)) throw new Error("private snapshot file mode, type, link count, or size mismatch");
+    if (!info.isFile() || info.nlink !== 1n || (process.getuid !== undefined && info.uid !== BigInt(process.getuid())) || Number(info.mode & 0o777n) !== 0o600 || info.size !== BigInt(record.bytes)) throw new Error("private snapshot file mode, type, link count, or size mismatch");
     const hash = createHash("sha256");
     const buffer = Buffer.alloc(64 * 1024);
     let position = 0;
@@ -437,12 +462,15 @@ async function validatePrivateFile(path: string, record: BundleFileRecord): Prom
       position += bytesRead;
     }
     if (hash.digest("hex") !== record.sha256) throw new Error("private snapshot file digest mismatch");
+    const after = await handle.stat({ bigint: true }), node = await lstat(path, { bigint: true });
+    if (!sameStableStat(stableStat(info), stableStat(after)) || node.isSymbolicLink() || node.dev !== info.dev || node.ino !== info.ino || node.uid !== info.uid || !sameStableStat(stableStat(info), stableStat(node))) throw new Error("private snapshot file identity changed");
   } finally { await handle.close(); }
 }
 
 export async function openPrivateBundleSnapshot(options: OpenBundleSnapshotOptions): Promise<BundleSnapshot> {
   const captured = dataRecord(options, "open snapshot options");
-  exactKeys(captured, ["limits", "snapshotId", "snapshotRoot"], "open snapshot options");
+  exactKeys(captured, ["limits", "snapshotId", "snapshotRoot", ...(captured.expectedRequest === undefined ? [] : ["expectedRequest"])], "open snapshot options");
+  if (captured.expectedRequest !== undefined) serviceRequestDigest(captured.expectedRequest as ParsedServiceRequest);
   if (typeof captured.snapshotRoot !== "string" || !isAbsolute(captured.snapshotRoot)) throw new TypeError("snapshot root must be absolute");
   const limits = parseLimits(captured.limits as BundleLimits);
   const snapshotId = typeof captured.snapshotId === "string" && DIGEST.test(captured.snapshotId) ? captured.snapshotId : (() => { throw new TypeError("snapshot identifier is invalid"); })();
@@ -452,12 +480,16 @@ export async function openPrivateBundleSnapshot(options: OpenBundleSnapshotOptio
   const snapshotBefore = await inspectDirectory(snapshotPath, "private");
   const projectRoot = join(snapshotPath, "project");
   const projectBefore = await inspectDirectory(projectRoot, "private");
-  const parsed = await boundedCanonicalJson(join(snapshotPath, "snapshot.json"), limits.maxManifestBytes, "private");
+  const parsed = await boundedCanonicalJson(join(snapshotPath, "snapshot.json"), Math.min(4 * 1024 * 1024, limits.maxManifestBytes * 2 + 4096), "private");
   const manifest = parsePrivateManifest(parsed.value, snapshotId, limits);
+  if (captured.expectedRequest !== undefined) requireManifestBindings(manifest.originalManifest, captured.expectedRequest as ParsedServiceRequest);
   const maximumEntries = limits.maxFiles * 2 + limits.maxAllowedSourceRoots + 16;
   const actualFiles = await listProjectFiles(projectRoot, limits.maxPathBytes, maximumEntries, "private");
   const declaredFiles = manifest.files.map(({ path }) => path);
   if (canonicalJson(actualFiles) !== canonicalJson(declaredFiles)) throw new Error("private snapshot exhaustive file list mismatch");
+  for (const record of manifest.files) await validatePrivateFile(join(projectRoot, record.path), record);
+  await syncSnapshotTree(snapshotPath, manifest.files);
+  await syncDirectory(snapshotRoot);
   for (const record of manifest.files) await validatePrivateFile(join(projectRoot, record.path), record);
   const [rootAfter, snapshotAfter, projectAfter] = await Promise.all([inspectDirectory(snapshotRoot, "private"), inspectDirectory(snapshotPath, "private"), inspectDirectory(projectRoot, "private")]);
   if (!sameFileIdentity(rootBefore, rootAfter) || !sameFileIdentity(snapshotBefore, snapshotAfter) || !sameFileIdentity(projectBefore, projectAfter)) throw new Error("private snapshot identity was replaced during validation");
@@ -524,29 +556,28 @@ export async function validateAndSnapshotBundle(options: BundleSnapshotOptions):
     if (!sameFileIdentity(incomingRootBefore, incomingRootAfter) || !sameFileIdentity(bundleBefore, bundleAfter) || !sameFileIdentity(projectBefore, projectAfter)) throw new Error("incoming bundle root identity was replaced during snapshot copy");
     const snapshotId = snapshotIdentity(manifest.manifestDigest, manifest.files);
     const privateManifest: PrivateSnapshotManifest = deepFreeze({
-      version: "1", snapshotId, incomingManifestDigest: manifest.manifestDigest,
+      version: "2", originalManifest: manifest, snapshotId, incomingManifestDigest: manifest.manifestDigest,
       policyPath: manifest.policyPath, decisionRegistryPath: manifest.decisionRegistryPath,
       trustedConfigPath: manifest.trustedConfigPath, allowedSourceRoots: [...manifest.allowedSourceRoots],
       files: manifest.files.map((file) => ({ ...file })),
     });
     await writePrivateManifest(join(staging, "snapshot.json"), privateManifest);
-    await syncDirectory(stagingProject);
-    await syncDirectory(staging);
+    await syncSnapshotTree(staging, manifest.files);
     const destination = join(snapshotRoot, snapshotId);
-    try {
-      await lstat(destination);
-      return await openPrivateBundleSnapshot({ snapshotRoot, snapshotId, limits });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error;
-    }
+    const acceptPublished = async () => {
+      return await openPrivateBundleSnapshot({ snapshotRoot, snapshotId, limits, expectedRequest: request });
+    };
+    let destinationExists = true;
+    try { await lstat(destination); }
+    catch (error) { if ((error as NodeJS.ErrnoException)?.code !== "ENOENT") throw error; destinationExists = false; }
+    if (destinationExists) return await acceptPublished();
     try {
       await rename(staging, destination);
       stagingExists = false;
-      await syncDirectory(snapshotRoot);
     } catch (error) {
       if (!(["EEXIST", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException)?.code ?? ""))) throw error;
     }
-    return await openPrivateBundleSnapshot({ snapshotRoot, snapshotId, limits });
+    return await acceptPublished();
   } finally {
     if (stagingExists) await rm(staging, { recursive: true, force: true });
   }

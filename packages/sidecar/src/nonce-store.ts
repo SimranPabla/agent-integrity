@@ -102,6 +102,7 @@ export class FileNonceStore {
       if (!(error instanceof DurableRecordExistsError)) throw error;
       const actual = await this.#root.read("configuration.json");
       if (actual === null || typeof actual !== "object" || Array.isArray(actual) || JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error("nonce store configuration mismatch");
+      await this.#root.ensurePublished("configuration.json", expected);
     }
   }
 

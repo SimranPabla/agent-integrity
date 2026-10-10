@@ -21,6 +21,15 @@ export interface StoredReceiptRecord {
   readonly cleanupPaths?: readonly string[];
 }
 
+export interface IssuedReceiptRecord extends StoredReceiptRecord {
+  readonly receipt: AlphaIntegrityReceipt;
+}
+
+export interface ClosedReceiptRecord extends IssuedReceiptRecord {
+  readonly closedAt: string;
+  readonly reasonCode: string;
+}
+
 export interface ConsumedReceiptRecord {
   readonly receiptDigest: string;
   readonly runId: string;

@@ -1,4 +1,8 @@
+import { allowDiskIntegrationTime } from "./support/disk-integration-timeout.js";
+allowDiskIntegrationTime();
 import { spawnSync } from "node:child_process";
+import nativeFS from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import { createHash } from "node:crypto";
 import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rename, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { canonicalJson, sha256Canonical } from "@agent-integrity/core";
 import type { IntegrityEnvelope } from "@agent-integrity/protocol";
 import { describe, expect, it } from "vitest";
+import { rm, open, readlink } from "node:fs/promises";
 import {
   assertSafeBundleId,
   openPrivateBundleSnapshot,
@@ -389,4 +394,71 @@ describe("sidecar evidence-bundle boundary", () => {
     expect(recovered).toEqual(first);
     await expect(validateAndSnapshotBundle(options(test, { nowMs: Date.parse("2030-01-01T00:10:01.000Z") }))).rejects.toThrow(/expired|expiry|fresh/u);
   });
+});
+
+it("real rename retry reestablishes failed root sync before accepting unchanged snapshot", async () => {
+ const test = await setup(); const probe = await open(test.snapshotRoot,"r");
+ const prototype = Object.getPrototypeOf(probe); const nativeSync = prototype.sync; await probe.close();
+ let armed = true, attempts = 0;
+ const rootInfo = await lstat(test.snapshotRoot);
+ prototype.sync = async function() {
+  const info = await this.stat();
+  if (info.dev === rootInfo.dev && info.ino === rootInfo.ino) { attempts++; if (armed) throw Error("snapshot root sync remains failed"); }
+  return nativeSync.call(this);
+ };
+ try {
+  await expect(validateAndSnapshotBundle(options(test))).rejects.toThrow(/snapshot root sync remains failed/);
+  const [id] = (await readdir(test.snapshotRoot)).filter(n=>!n.startsWith(".")); expect(id).toMatch(/^[a-f0-9]{64}$/);
+  const path = join(test.snapshotRoot,id!,"snapshot.json"), bytes = await readFile(path), first = attempts;
+  expect(first).toBeGreaterThan(0);
+  await expect(validateAndSnapshotBundle(options(test))).rejects.toThrow(/snapshot root sync remains failed/);
+  expect(attempts).toBeGreaterThan(first); expect(await readFile(path)).toEqual(bytes);
+  armed = false; await expect(validateAndSnapshotBundle(options(test))).resolves.toMatchObject({snapshotId:id});
+  expect(await readFile(path)).toEqual(bytes);
+ } finally { prototype.sync = nativeSync; await rm(test.root,{recursive:true,force:true}); }
+});
+
+describe("Task8 original snapshot binding", () => {
+  it("reopens only against the original admitted request", async () => {
+    const test = await setup(); const snapshot = await validateAndSnapshotBundle(options(test));
+    await expect(openPrivateBundleSnapshot({ snapshotRoot: test.snapshotRoot, snapshotId: snapshot.snapshotId, limits: LIMITS, expectedRequest: test.request })).resolves.toMatchObject({ snapshotId: snapshot.snapshotId });
+    await expect(openPrivateBundleSnapshot({ snapshotRoot: test.snapshotRoot, snapshotId: snapshot.snapshotId, limits: LIMITS, expectedRequest: request("different-bundle") })).rejects.toThrow(/binding/);
+  });
+  it("rejects derived trusted paths not proved by the original manifest", async () => {
+    const test = await setup(); const snapshot = await validateAndSnapshotBundle(options(test));
+    const path = join(snapshot.snapshotPath, "snapshot.json"); const value = JSON.parse(await readFile(path, "utf8"));
+    value.policyPath = value.decisionRegistryPath; await writeFile(path, canonicalJson(value));
+    await expect(openPrivateBundleSnapshot({ snapshotRoot: test.snapshotRoot, snapshotId: snapshot.snapshotId, limits: LIMITS })).rejects.toThrow(/original|binding/);
+  });
+});
+
+it("nested snapshot ancestors are synced leaf-first and ancestor failure prevents rename", async () => {
+ const test=await setup(); const relative="docs/nested/a/b/extra.md", bytes=Buffer.from("nested evidence");
+ const source=join(test.bundle,"project",relative);await mkdir(dirname(source),{recursive:true,mode:0o750});await writeFile(source,bytes,{mode:0o640});
+ const data=await manifest(test.bundle);data.files.push({path:relative,bytes:bytes.length,sha256:sha256(bytes)});data.files.sort((a,b)=>Buffer.compare(Buffer.from(String(a.path)),Buffer.from(String(b.path))));await writeManifest(test.bundle,data);
+ const probe=await open(test.snapshotRoot,"r"),prototype=Object.getPrototypeOf(probe),nativeSync=prototype.sync;await probe.close();
+ let armed=true,attempts=0;const calls:string[]=[];
+ prototype.sync=async function(){const info=await this.stat();if(info.isDirectory()){const path=await readlink("/proc/self/fd/"+this.fd);calls.push(path);if(path.endsWith("/project/docs/nested")){attempts++;if(armed)throw Error("nested ancestor sync remains failed");}}return nativeSync.call(this);};
+ try {
+  await expect(validateAndSnapshotBundle(options(test))).rejects.toThrow(/nested ancestor sync remains failed/);expect(await readdir(test.snapshotRoot)).toEqual([]);
+  await expect(validateAndSnapshotBundle(options(test))).rejects.toThrow(/nested ancestor sync remains failed/);expect(attempts).toBe(2);expect(await readdir(test.snapshotRoot)).toEqual([]);
+  armed=false;calls.length=0;const snapshot=await validateAndSnapshotBundle(options(test));expect(await readFile(join(snapshot.projectRoot,relative))).toEqual(bytes);
+  const prefix=calls.find(p=>p.endsWith("/project/docs/nested/a/b"))!.slice(0,-"/docs/nested/a/b".length);
+  const at=(suffix:string)=>calls.lastIndexOf(prefix+suffix);
+  expect(at("/docs/nested/a/b")).toBeLessThan(at("/docs/nested/a"));expect(at("/docs/nested/a")).toBeLessThan(at("/docs/nested"));expect(at("/docs/nested")).toBeLessThan(at("/docs"));expect(at("/docs")).toBeLessThan(at(""));expect(at("")).toBeLessThan(calls.indexOf(test.snapshotRoot));
+ } finally {prototype.sync=nativeSync;await rm(test.root,{recursive:true,force:true});}
+});
+
+it("actual rename collision rejects persistent publication failure and preserves destination", async () => {
+ const test=await setup(),seed=await validateAndSnapshotBundle(options(test));const before=await readFile(join(seed.snapshotPath,"snapshot.json"));
+ const nativeLstat=nativeFS.lstat,nativeRename=nativeFS.rename;let hideOnce=true,collisions=0,armed=true,attempts=0;
+ const probe=await open(test.snapshotRoot,"r"),prototype=Object.getPrototypeOf(probe),nativeSync=prototype.sync,rootInfo=await probe.stat();await probe.close();
+ nativeFS.lstat=(async (...args:Parameters<typeof nativeFS.lstat>)=>{if(hideOnce&&args[0]===seed.snapshotPath){hideOnce=false;throw Object.assign(Error("absence at pre-rename check"),{code:"ENOENT"});}return nativeLstat(...args);}) as typeof nativeFS.lstat;
+ nativeFS.rename=async (...args)=>{try{return await nativeRename(...args);}catch(error){if(args[1]===seed.snapshotPath&&["EEXIST","ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code??""))collisions++;throw error;}};
+ prototype.sync=async function(){const info=await this.stat();if(info.dev===rootInfo.dev&&info.ino===rootInfo.ino){attempts++;if(armed)throw Error("collision root sync remains failed");}return nativeSync.call(this);};syncBuiltinESMExports();
+ try {
+  await expect(validateAndSnapshotBundle(options(test))).rejects.toThrow(/collision root sync remains failed/);expect(collisions).toBe(1);const first=attempts;
+  hideOnce=true;await expect(validateAndSnapshotBundle(options(test))).rejects.toThrow(/collision root sync remains failed/);expect(collisions).toBe(2);expect(attempts).toBeGreaterThan(first);
+  armed=false;hideOnce=true;await expect(validateAndSnapshotBundle(options(test))).resolves.toMatchObject({snapshotId:seed.snapshotId});expect(collisions).toBe(3);expect(await readFile(join(seed.snapshotPath,"snapshot.json"))).toEqual(before);expect(await readdir(test.snapshotRoot)).toEqual([seed.snapshotId]);
+ } finally {nativeFS.lstat=nativeLstat;nativeFS.rename=nativeRename;prototype.sync=nativeSync;syncBuiltinESMExports();await rm(test.root,{recursive:true,force:true});}
 });
