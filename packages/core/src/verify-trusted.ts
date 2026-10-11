@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { captureJsonData, captureTrustedContext } from "./capture-json.js";
 import { posix } from "node:path";
 import type {
   EnvelopeVerificationResult,
@@ -174,7 +175,9 @@ export async function verifyTrustedEnvelope(
   context: TrustedVerificationContext,
 ): Promise<EnvelopeVerificationResult> {
   try {
-    return await verifyTrustedUnsafe(envelope, context);
+    const capturedEnvelope = captureJsonData(envelope);
+    const capturedContext = captureTrustedContext(context);
+    return await verifyTrustedUnsafe(capturedEnvelope, capturedContext);
   } catch (error) {
     return checkerFailure(error);
   }
