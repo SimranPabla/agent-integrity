@@ -34,7 +34,24 @@ function serialize(value: unknown, path: string, depth: number, state: State): s
   if (Array.isArray(value)) {
     enter(state, value, path, depth);
     try {
-      return `[${value.map((entry, index) => serialize(entry, `${path}[${index}]`, depth + 1, state)).join(",")}]`;
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (!lengthDescriptor || !("value" in lengthDescriptor) ||
+          typeof lengthDescriptor.value !== "number" || !Number.isInteger(lengthDescriptor.value) ||
+          lengthDescriptor.value < 0 || lengthDescriptor.value > 4_294_967_295 ||
+          lengthDescriptor.enumerable !== false || lengthDescriptor.configurable !== false) {
+        throw new TypeError(`Invalid array length descriptor at ${path}`);
+      }
+      const length = lengthDescriptor.value;
+      const entries: string[] = [];
+      for (let index = 0; index < length; index += 1) {
+        const indexPath = `${path}[${index}]`;
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !("value" in descriptor)) {
+          throw new TypeError(`Expected own array data index at ${indexPath}`);
+        }
+        entries.push(serialize(descriptor.value, indexPath, depth + 1, state));
+      }
+      return `[${entries.join(",")}]`;
     } finally {
       state.ancestors.delete(value);
     }
