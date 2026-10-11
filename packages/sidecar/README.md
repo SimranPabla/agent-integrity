@@ -2,9 +2,9 @@
 
 ## Status
 
-This package is an implementation in progress. It is not yet a deployable service and the pull request must remain in draft until the remaining implementation tasks and final adversarial review are complete.
+Local tested-code checkpoint `b8523dae9ff613dca6a2c9316774d76f75dd072f` passed qualified Task 10 implementation reviews and two independently checked full runs (each 978 passed, 2 skipped, 80 files). **runtimeReady: false**: actual Linux UID/GID and network-namespace scripts returned 77 (INCONCLUSIVE); Node 22 was unavailable. Node 24.21.0/npm 12.0.2 were exercised October 10, 2026. Task 11 final independent reviews, deployment qualification and separate CAGE runtime integration remain outstanding. See [executed evidence](../../docs/results/2026-09-18-private-sidecar-result.md).
 
-The current tree contains Tasks 1–9 of the approved plan in `docs/plans/private-verified-release-sidecar-implementation.md`. Task 8 is published; Task 9 has passed independent specification and scoped security re-reviews, with local checkpoint/final acceptance recorded separately. This does not authorize deployment or publication of Task 9.
+The package `@agent-integrity/sidecar` remains `private: true`. The exact public npm set is `@agent-integrity/protocol`, `@agent-integrity/core`, `@agent-integrity/sdk`, and `@agent-integrity/cli`; the sidecar is compiled and smoke-checked separately, never packed publicly.
 
 ## Implemented components
 
@@ -24,7 +24,7 @@ The current tree contains Tasks 1–9 of the approved plan in `docs/plans/privat
 
 ### 3. Evidence-bundle admission
 
-- Private archive admission with path, link, entry-count, and byte ceilings.
+- Private directory-bundle admission with path, link, entry-count, and byte ceilings; no archive parser.
 - Exact source snapshotting and content-addressed object identities.
 - Bundle expiry and clock-skew enforcement.
 - Canonical manifest validation and fail-closed source mutation detection.
@@ -68,11 +68,11 @@ Generic JWKS parsing is compatible but is **not** sufficient admission authority
 - Policy roots, decision path/digest and source membership/size/digests are bound to the manifest and current envelope. Host ceilings apply before trusted verification; the returned context is recursively frozen.
 - The parent checks canonical, closed, envelope-digest-bound verification output, finding counts/bytes and calculated verdict consistency. Worker failures, malformed output, timeout and abort return metadata-only technical failure, with termination awaited before return. No receipt issuance or request-state mutation is performed.
 - Bound trusted policy/config/decision reads use `O_NOFOLLOW | O_NONBLOCK`, then require a regular private file before reading. A FIFO substituted after snapshot admission is rejected without waiting for a writer; this is a bounded reopen check, not protection against a hostile trusted host.
-- Production resolves the compiled sibling `verification-worker.js`. Vitest source execution uses the existing Vite development dependency to evaluate current TypeScript and relative imports in the thread; it never falls back to stale sidecar `dist` files. Source execution outside Vitest is rejected. Worker stdout/stderr are drained without disclosure.
+- Production resolves the compiled sibling `verification-worker.js`. Vitest source execution uses a worker-local Node loader with native TypeScript transformation when available and a TypeScript compiler fallback for current source and relative imports; it never falls back to stale sidecar `dist` files. Source execution outside Vitest is rejected. Worker stdout/stderr are drained without disclosure.
 
 Worker threads provide **cooperative cancellation/isolation, not an operating-system sandbox for hostile code**. They retain the process Unix identity and ambient filesystem privileges. Trusted parent code selects snapshot roots and limits; the model does not. Protected snapshot ownership and the single trusted mutation coordinator remain necessary.
 
-The private snapshot manifest does not retain the original request envelope digest. This layer binds policy/source/decision data to the current envelope; Task 8 durably binds the selected snapshot identity and exact envelope/request digest in the transaction. Task 9 assembles the bounded queue, runtime, transport and protected offline recovery around that transaction.
+The version-2 private snapshot retains `originalManifest.envelopeDigest` and validates it against `expectedRequest`. This layer binds policy/source/decision data to the current envelope; Task 8 durably binds the selected snapshot identity and exact envelope/request digest in the transaction. Task 9 assembles the bounded queue, runtime, transport and protected offline recovery around that transaction.
 
 ## Security guarantees established so far
 
@@ -113,11 +113,9 @@ npm run pack:check
 
 GitHub Actions independently runs the required Node 22 and Node 24/npm 12 jobs for every published pull-request head.
 
-## Remaining implementation
+## Acceptance still required
 
-Task 8 supplies durable verified-release/recovery orchestration; Task 9 adds Unix-socket transport, runtime, health and protected recovery CLI. Remaining approved-plan work includes Task 10 integration/identity/network/clean-install and joint CAGE fixtures, and Task 11 deployment/operations/final adversarial acceptance. No production service has been deployed. Operator instructions for this local slice are separate from deployment approval.
-
-Until these are complete, this package must not be represented as a finished sidecar or production control plane.
+Final independent Task 11 specification/security reviews and owner review remain pending. Real separate-user and no-network execution requires a suitably privileged Linux environment. Joint partner fixtures and Provider 06 runtime integration require a separate CAGE PR against its current layout. No local check authorizes deployment.
 
 ## Task 9 local command surface (local-only; not deployment approval)
 
@@ -138,3 +136,40 @@ OS provisioning, system services, real separate-user/no-network proof and deploy
 Shutdown validates the pinned socket and directory immediately before closing the Node listener, then stops accepting new connections while durable work drains. Forced grace expiry preserves the root lease and returns unsafe. Node/libuv itself unlinks the bound pathname when closing its listener; portable JavaScript cannot promise preservation against a same-identity hostile replacement in the final validation-to-close race. Pre-existing detected substitutions fail closed before listener close. This limitation is not separate-user isolation proof.
 
 Readiness observes fresh lease and initialized store capacity without queue admission, new receipt-store locks, issuance or consumption. Concurrent or malformed state observations fail closed; healthy busy operation is not inferred from cached readiness. Authorization replay preflight is read-only; audit initialization/publication runs only with the exact live root recovery capability.
+
+## Exact guarantee and verdict routing
+
+Under the trusted-host assumptions below, successful authenticated processing snapshots admitted evidence, verifies the exact envelope against that snapshot, signs a real receipt, durably consumes PASS, and commits the canonical result before delivery. Returned base64 decodes to the exact UTF-8 envelope response content; SHA-256 binds it. This is recoverable local single consumption and bounded idempotent redelivery, not distributed exactly-once downstream delivery. Dispatch the returned buffer itself, never a reconstruction.
+
+- PASS: wrapper and signed receipt verification canonically equal PASS; only this outcome has releasedResponse.
+- REVIEW/BLOCKED: matching signed verification/receipt, no response bytes; preserve refusal evidence and hold/stop.
+- RELEASE_REFUSED: signed prospective PASS receipt, terminal release.status REVIEW/BLOCKED, code RECEIPT_RECHECK_REFUSED, retryable false, no bytes. Preserve receipt and refusal; the receipt alone is not release authority.
+- Technical failure: closed protocol version/optional safely parsed request ID/error metadata only. Never infer rollback of nonce, reservation, prepared, issued, consumed or closed state.
+
+The durable phase graph is reserved → verified → receipt-prepared → receipt-issued. PASS proceeds through pass-consumed → result-committed; release refusal through release-refused → result-committed; REVIEW/BLOCKED commit without consumption. Expired completed results compact to permanent tombstones. Recovery follows the original legal branch, signing/trust/request bindings, never replacement identities to evade consumption.
+
+Retries need the same client, store generation, idempotency key and exact canonical request digest, but a fresh authentication nonce. Completed retries return byte-identical canonical responses only within their delivery deadline. Changed bodies conflict; expired/tombstoned requests do not release bytes. Disconnect/output-write failure never authorizes undoing durable issuance or consumption.
+
+## Provisioning and operating criteria
+
+These are operator requirements, not exercised deployment commands. Use distinct non-root CAGE and sidecar UIDs. The client group must enumerate exactly those two UIDs through complete NSS primary/supplementary membership. No unrelated memberships, shared signing-key access, ambient root, CAP_DAC_OVERRIDE, CAP_DAC_READ_SEARCH or CAP_FOWNER. The implementation does not create users, drop capabilities, enforce a network namespace or sandbox hostile same-identity code; privileged administrators and account changes between checks remain trusted-host assumptions.
+
+Socket directory: sidecar UID/client GID, 0710, beneath a canonical root-owned parent without group/other write; socket 0660, pathname at most 103 UTF-8 bytes. Private state/snapshot directories 0700, durable records 0600. Configuration is a regular owner-only 0400 or 0600 file. HMAC, receipt-signing and manifest-authority private-key files are regular 0400 files, never inline values or argv secrets. HMAC material is 32–1024 raw bytes; Ed25519 private files must parse through Node createPrivateKey and match the configured raw public registry/authority. Provision separate protected HMAC copies for CAGE and sidecar; CAGE-copy isolation is the operator's responsibility. Ancestor/link/identity checks fail closed, not against a hostile trusted host.
+
+CAGE owns closed incoming bundle publication and completeness; sidecar copies admitted content into a private content-addressed snapshot. The configured incoming root is CAGE UID/client GID, 0750. Incoming contents must be stable and protected beneath it. Links, traversal, malformed manifests, mutation and expiry fail closed. Bundle lifetime ≤900,000 ms, timestamp skew ≤60,000 ms. Durable request/snapshot identity persists through recovery even after incoming deletion. Never remove objects referenced by unresolved transactions.
+
+HMAC overlap is bounded by configuration (≤86,400 seconds). Nonce uniqueness excludes key ID; rotation cannot reuse a nonce. Receipt rotation retains sorted historical public keys without kid rebinding and original private-key files required by prepared transactions across restarts. Revoked/expired active keys fail closed at fresh time. Reload validates the whole candidate atomically; failed/concurrent candidates cannot partially replace active registries. No signal-based reload command is promised. The shipped serve path captures its configuration and HMAC service snapshot at construction; manager-level reload tests do not establish a CLI live-rotation control. Operator rotation therefore requires a safely drained stop, complete reviewed candidate/config/key provisioning, and restart, preserving all original files needed by recovery. Signed manifest changes require a strictly greater manifest generation; that is distinct from state storeGeneration, which cannot change online. Never reset nonce, consumption, quota, handoff or request tombstones. New-store migration needs independent review, new generation and audience/purpose separation.
+
+GET /health/live and GET /health/ready run over UDS without queue admission. Liveness is not authorization. Readiness freshly observes lease, keys and initialized store capacity without issuance, consumption or new receipt-store locks; stale/malformed/concurrent observations fail closed. One outstanding probe per prerequisite, default 1,000 ms timeout, hard 5,000 ms maximum, at most 64 codes. Late results cannot become healthy after timeout/shutdown. Busy health is not inferred from cached readiness.
+
+Production runtime fixes headers at 8 KiB/64 fields, connections at 16, read timeout 10,000 ms, queue maximum 8 with 5,000 ms admission timeout and pure verification timeout 5,000 ms. General independent transport ceilings: headers 64 KiB/128 fields, connections 128, envelope items/findings 10,000; configured request/envelope/source/aggregate bytes, read time and queue/worker capacity must remain bounded. Exact released bytes ≤16 MiB; canonical wrapper/base64/signed receipt ≤32 MiB. Trusted configuration requires explicit coherent limits, no omitted defaults. Capacity exhaustion fails closed; permanent tombstones consume capacity. Monitor and migrate before exhaustion, never delete uniqueness records.
+
+Minimum assumptions: trusted administrator and fresh clock, complete enumerable NSS, protected single-host local filesystem with hard-link publication and supported durability semantics, no hostile sidecar-identity writer, one live mutation owner, trusted out-of-band keys and CAGE evidence. Offline exclusivity is an operator assertion, not PID/process-death proof. SIGKILL tests do not prove power-loss survival, hardware durability, OS isolation, network denial, semantic truth, completeness, production SLA or CAGE admission. Back up complete state plus required original config/keys only while every writer is stopped or via an approved consistent snapshot; never restore older replay state over a newer live store.
+
+Keep an operator-local runbook selected through SIDECAR_RUNBOOK_PATH, never commit host identities or secrets. Run the secret scanner with that readable external path and scoped ripgrep. Exit 0: no detected material; 1: material found; 2: scanner/tool/read failure. Pattern scanning is not general secret-detection proof; committed JSON/YAML fixture structures are checked separately.
+
+### Client wire and operational output
+
+POST /v1/verify-release uses application/json and exact RFC8785 canonical body bytes: serviceProtocolVersion, requestId, idempotencyKey, bundleId, envelope, with unknown/duplicate fields rejected. Exactly one of each authentication header is required: x-agent-integrity-client, x-agent-integrity-key-id, x-agent-integrity-timestamp, x-agent-integrity-nonce, x-agent-integrity-signature. HMAC-SHA256 signs the ASCII agent-integrity-sidecar-auth-v1 prefix plus eight UTF-8 fields, each preceded by its four-byte big-endian length: method, path, protocol version, client ID, key ID, timestamp, nonce and admitted canonical body SHA256. MAC is canonical unpadded base64url. Pure bounded parsing precedes MAC verification; only successful MAC enters the mutation coordinator and consumes a durable nonce.
+
+CLI successful redacted codes are CONFIGURATION_VALID, SERVICE_STARTED, SERVICE_STOPPED and RECOVERY_COMPLETE. COMMAND_FAILED, RECOVERY_REQUIRED and SHUTDOWN_UNSAFE are not readiness; unsafe shutdown exits nonzero and preserves authority. No stdout receipt/key disclosure or TCP endpoint is provided. Offline authorization is consumed after immutable root handoff and before nested continuation; a failure after consumption requires a new authorization, not replay of the old one.
