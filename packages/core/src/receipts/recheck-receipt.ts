@@ -7,6 +7,8 @@ import {
   type ReceiptRecheckResult,
 } from "@agent-integrity/protocol";
 import { verify as verifySignature } from "node:crypto";
+import { captureJsonData } from "../capture-json.js";
+import { assertAlphaIntegrityReceipt } from "../schema/validate-receipt.js";
 import { canonicalJson } from "../canonical-json.js";
 import { sha256Canonical } from "../hash.js";
 import { calculateOutcome, checkerFailure } from "../outcome.js";
@@ -60,8 +62,16 @@ function canonicalEd25519Signature(value: string): Buffer | undefined {
   return decoded;
 }
 
-function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
-  const { receipt, envelope, now } = options;
+function admittedReceipt(options: RecheckReceiptOptions): AlphaIntegrityReceipt {
+  const descriptor = Object.getOwnPropertyDescriptor(options, "receipt");
+  if (!descriptor || !("value" in descriptor)) throw new TypeError("receipt must be an own data property");
+  const receipt: unknown = captureJsonData(descriptor.value);
+  assertAlphaIntegrityReceipt(receipt);
+  return receipt;
+}
+
+function recheckUnsafe(options: RecheckReceiptOptions, receipt: AlphaIntegrityReceipt): ReceiptRecheckResult {
+  const { envelope, now } = options;
   if (receipt === null || typeof receipt !== "object") throw new Error("receipt must be an object");
   if (receipt.protocolVersion !== PROTOCOL_VERSION || receipt.receiptVersion !== "2-alpha") {
     throw new Error("unsupported receipt version");
@@ -134,7 +144,8 @@ function recheckUnsafe(options: RecheckReceiptOptions): ReceiptRecheckResult {
 
 export function recheckReceipt(options: RecheckReceiptOptions): ReceiptRecheckResult {
   try {
-    return recheckUnsafe(options);
+    const receipt = admittedReceipt(options);
+    return recheckUnsafe(options, receipt);
   } catch (error) {
     return checkerFailure(error);
   }
@@ -152,7 +163,8 @@ export type ValidateTrustedReceiptOptions = RecheckReceiptOptions & {
 /** Validates a receipt against freshly recollected trusted source bytes without consuming it. */
 export async function validateTrustedReceipt(options: ValidateTrustedReceiptOptions): Promise<ReceiptRecheckResult> {
   try {
-    const baseline = recheckUnsafe(options);
+    const receipt = admittedReceipt(options);
+    const baseline = recheckUnsafe(options, receipt);
     const live = await verifyTrustedEnvelope(options.envelope, options.context);
     const findings = [...baseline.findings];
     if (live.status !== "PASS") findings.push(...live.findings);
@@ -182,7 +194,7 @@ export async function recheckTrustedReceipt(options: RecheckTrustedReceiptOption
         };
       }
       try {
-        await options.receiptStore.consume(options.receipt, options.now);
+        await options.receiptStore.consume(receipt, options.now);
       } catch (error) {
         return {
           ...calculateOutcome([...result.findings, blocked("receipt.replayed", error instanceof Error ? error.message : "Receipt consumption failed")]),
