@@ -2,7 +2,8 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createReceipt, verifyEnvelope } from "../../src/index.js";
+import { verifyEnvelope } from "../../src/index.js";
+import { createTestReceipt as createReceipt } from "../support/create-test-receipt.js";
 import { trustedEnvelopeFixture } from "../support/trusted-envelope.js";
 import { receiptSigningOptions } from "../support/receipt-keys.js";
 

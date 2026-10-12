@@ -153,4 +153,8 @@ Please review whether the proposed CAGE-side responsibilities match current CAGE
 - exact-byte downstream dispatch;
 - current partner documentation and test locations for the later CAGE PR.
 
-The Agent Integrity implementation remains paused at an internal checkpoint while this contract and the full architecture are reviewed.
+Local implementation evidence exists at the named tested-code checkpoint; runtimeReady remains false. Partner integration remains a separate, unimplemented CAGE PR against the current partner layout. This contract does not establish partner acceptance or joint-fixture execution.
+
+## Later partner PR acceptance fixture
+
+The separate CAGE PR must reject schema/limit/order/unknown-field errors; missing or mismatched key metadata; algorithm, authority-ID, domain, digest and signature mismatch; padded/noncanonical encodings and incorrect decoded lengths; stale, revoked, future or expired keys/manifests at fresh host time; profile/policy/envelope/request-ID mismatch; rollback and equal-generation conflicts against the persisted generation/digest pair. Exercise canonical wrapper/receipt equality, exact returned-byte dispatch, and PASS/REVIEW/BLOCKED/RELEASE_REFUSED/technical/transport failure through ConsequenceGateway with refusal evidence preservation. Generic JWKS parsing and sidecar-local tests are not this joint acceptance fixture. No partner runtime or repository files are changed here.

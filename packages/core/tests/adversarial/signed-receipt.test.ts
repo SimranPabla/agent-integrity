@@ -3,7 +3,8 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createReceipt, recheckTrustedReceipt, sha256Canonical, verifyTrustedEnvelope } from "../../src/index.js";
+import { recheckTrustedReceipt, sha256Canonical, verifyTrustedEnvelope } from "../../src/index.js";
+import { createTestReceipt as createReceipt } from "../support/create-test-receipt.js";
 import { receiptSigningOptions, receiptTrust } from "../support/receipt-keys.js";
 import { trustedEnvelopeFixture } from "../support/trusted-envelope.js";
 

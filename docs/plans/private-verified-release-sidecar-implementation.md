@@ -14,6 +14,12 @@
 
 **Execution rule:** Complete tasks in order. For every task, prove the red test before implementation, keep the named commit isolated, and require separate specification and code-quality reviews before the next task. Do not modify either public JSON schema or any CAGE repository file.
 
+## October 7, 2026 — additive CAGE review acceptance clarification
+
+The owner approved a documentation-only [review-to-test acceptance supplement](private-sidecar-cage-review-acceptance.md). It maps Lars's October 4 review to the existing Tasks 8–11, specifies phase-aware technical-failure invariants and a later joint CAGE fixture. It does not replace the frozen architecture, change public schemas, reorder tasks, assert partner agreement on open wording, or resume implementation. Tasks 1–7 remain the implementation checkpoint; all new acceptance evidence is pending.
+
+For Task 9's technical-error assertions, apply the supplement's phase-specific rules: no unsafe/duplicate receipt issuance, consumption or release, while retaining committed auth-nonce and recoverable transaction/store records. Do not interpret the error-path instruction as permission to roll back replay protection or consumed state.
+
 ---
 
 ## Chunk 1: Security and storage primitives
