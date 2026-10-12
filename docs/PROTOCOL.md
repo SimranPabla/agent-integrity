@@ -85,6 +85,14 @@ Digests are calculated over canonical JSON:
 - semantically identical object-key ordering produces the same digest;
 - number, Unicode, and escaping behavior must match the conformance suite.
 
+The exported `canonicalJson` and `sha256Canonical` helpers traverse arrays using one captured own length data descriptor (integer uint32, non-enumerable, non-configurable; either writable flag), then each required own data-index descriptor. Holes, inherited required indices and own index accessors now throw TypeError at the indexed path without invoking index accessors. Caller map output is no longer honored; map, join, constructor/species, toJSON and iterator hooks are not accessed. Caller inputs are not cloned, frozen or mutated.
+
+Dense subclasses and custom-prototype arrays, frozen arrays and non-enumerable/non-writable data indices remain supported. Dense null-prototype arrays are accepted additively. Unrelated string/symbol array properties are ignored without reading their values, including accessor extras. This intentionally lossy projection is not closed JavaScript admission or a new collision-resistance guarantee; previously accepted non-JSON projections may change or reject. Supported dense JSON canonical bytes/digests remain unchanged. The record domain remains plain/null-prototype records with sorted enumerable own string keys: dangerous keys, accessors and undefined values reject; hidden and symbol properties remain ignored. Unsupported values, nonfinite numbers and cycles still reject; shared noncyclic containers are counted separately per occurrence.
+
+Limits remain container depth 64 (root zero), 100,000 container occurrences and 16 MiB UTF-8 per string. Primitives do not consume the container count or container-depth checks. There is no per-array, primitive-node, key-byte or aggregate transport budget; very large dense arrays can still consume substantial time/memory. Internal push/join use trusted host intrinsics. Hostile Proxy traps, globally modified intrinsics/prototypes and concurrent hostile mutation are outside side-effect-free guarantees; no Proxy detection or hardened-realm claim is made.
+
+This helper repair does not loosen the stricter capture admission or fix signed outer-transaction ownership. No schema, hash algorithm/version or receipt migration is introduced, nor is valid-envelope/signature forgery established. Reverting restores known unsafe sparse/hook behavior, not a security recovery; halt dependent untrusted use rather than treating revert as recovery. Rejected/non-JSON inputs are not automatically migrated or reissued.
+
 Implementations must not hash pretty-printed JSON, source YAML text, or runtime-specific object serialization. Human-authored YAML policy is parsed and normalized before it participates in protocol hashing.
 
 ## Hashes
