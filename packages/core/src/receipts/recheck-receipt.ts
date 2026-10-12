@@ -160,22 +160,29 @@ export type ValidateTrustedReceiptOptions = RecheckReceiptOptions & {
   readonly context: TrustedVerificationContext;
 };
 
+async function validateAdmittedTrustedReceipt(
+  options: ValidateTrustedReceiptOptions,
+  receipt: AlphaIntegrityReceipt,
+): Promise<ReceiptRecheckResult> {
+  const baseline = recheckUnsafe(options, receipt);
+  const live = await verifyTrustedEnvelope(options.envelope, options.context);
+  const findings = [...baseline.findings];
+  if (live.status !== "PASS") findings.push(...live.findings);
+  if (live.envelopeDigest === undefined) {
+    findings.push(blocked("receipt.live_source_check_failed", "Trusted source verification did not produce an envelope digest"));
+  }
+  return {
+    ...calculateOutcome(findings),
+    ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }),
+    ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }),
+  };
+}
+
 /** Validates a receipt against freshly recollected trusted source bytes without consuming it. */
 export async function validateTrustedReceipt(options: ValidateTrustedReceiptOptions): Promise<ReceiptRecheckResult> {
   try {
     const receipt = admittedReceipt(options);
-    const baseline = recheckUnsafe(options, receipt);
-    const live = await verifyTrustedEnvelope(options.envelope, options.context);
-    const findings = [...baseline.findings];
-    if (live.status !== "PASS") findings.push(...live.findings);
-    if (live.envelopeDigest === undefined) {
-      findings.push(blocked("receipt.live_source_check_failed", "Trusted source verification did not produce an envelope digest"));
-    }
-    return {
-      ...calculateOutcome(findings),
-      ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }),
-      ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }),
-    };
+    return await validateAdmittedTrustedReceipt(options, receipt);
   } catch (error) {
     return checkerFailure(error);
   }
@@ -183,8 +190,9 @@ export async function validateTrustedReceipt(options: ValidateTrustedReceiptOpti
 
 /** Rechecks the receipt against freshly recollected source bytes. */
 export async function recheckTrustedReceipt(options: RecheckTrustedReceiptOptions): Promise<ReceiptRecheckResult> {
-  const result = await validateTrustedReceipt(options);
   try {
+    const receipt = admittedReceipt(options);
+    const result = await validateAdmittedTrustedReceipt(options, receipt);
     if (result.status === "PASS") {
       if (options.receiptStore === undefined) {
         return {
