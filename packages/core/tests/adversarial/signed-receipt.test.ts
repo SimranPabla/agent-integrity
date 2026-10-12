@@ -91,7 +91,9 @@ describe("signed receipt authentication", () => {
     const changed = { ...body, receiptDigest: sha256Canonical(body) };
     const result = await recheckTrustedReceipt({ receipt: changed, envelope, context, trust: receiptTrust, now: new Date("2026-08-02T00:30:00.000Z") });
     expect(result.status).toBe("BLOCKED");
-    expect(result.findings.map((finding) => finding.code)).toContain("receipt.invalid_signature_encoding");
+    expect(result.findings.map((finding) => finding.code)).toEqual(["checker.failure"]);
+    expect(result.receiptDigest).toBeUndefined();
+    expect(result.envelopeDigest).toBeUndefined();
   });
 
   it("rejects excessive lifetime at issuance", async () => {
