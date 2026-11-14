@@ -52,6 +52,10 @@ Current version: `0.1.0-alpha.2` using protocol `1-alpha`.
 
 This is alpha software. Protocols and APIs may change before `1.0.0`. Receipt `2-alpha` uses Ed25519 producer authentication and a local filesystem registry for atomic single-use consumption. The registry must remain on one host filesystem and be protected from untrusted modification. See [Security](SECURITY.md), [Protocol](docs/PROTOCOL.md), and [Limitations](docs/LIMITATIONS.md).
 
+## Private verified-release sidecar
+
+The source tree includes a private same-host Unix-socket sidecar, excluded from the exact public protocol/core/sdk/cli npm set. See [operation and recovery](packages/sidecar/README.md), [Provider 06 follow-up contract](docs/integrations/cage-provider-06-contract.md), and [October 10 executed evidence](docs/results/2026-09-18-private-sidecar-result.md). Its guarantee assumes a trusted host, protected durable local stores, fresh clocks, separate Unix identities and out-of-band keys. It is not an OS sandbox or distributed exactly-once dispatcher. **runtimeReady remains false**: actual UID/GID and network-isolation execution is INCONCLUSIVE; Node 22 qualification and separate CAGE integration remain outstanding. Local checks do not authorize deployment.
+
 ## Requirements
 
 - Node.js 22 or newer

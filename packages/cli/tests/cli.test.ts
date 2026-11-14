@@ -6,10 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createReceipt, verifyTrustedEnvelope } from "@agent-integrity/core";
+import { verifyTrustedEnvelope } from "@agent-integrity/core";
 import type { AlphaIntegrityReceipt, IntegrityEnvelope } from "@agent-integrity/protocol";
 import { validEnvelope } from "../../core/tests/support/valid-envelope.js";
 import { receiptSigningOptions, receiptTrust } from "../../core/tests/support/receipt-keys.js";
+import { createTestReceipt as createReceipt } from "../../core/tests/support/create-test-receipt.js";
 
 const execFileAsync = promisify(execFile);
 const root = new URL("../../..", import.meta.url).pathname;

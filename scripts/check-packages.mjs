@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, readdir, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,21 @@ import { parseNpmPackManifest } from "./npm-pack-manifest.mjs";
 
 const packages = ["protocol", "core", "sdk", "cli"];
 const workspace = dirname(dirname(fileURLToPath(import.meta.url)));
+// Inspect all package manifests before allocating pack staging. No private pack.
+const publishable = [];
+for (const name of await readdir(join(workspace, "packages"))) {
+  const manifest = JSON.parse(await readFile(join(workspace, "packages", name, "package.json"), "utf8"));
+  if (manifest.private !== true) publishable.push(name);
+  if (name !== "sidecar" && Object.hasOwn(manifest.dependencies ?? {}, "@agent-integrity/sidecar")) throw new Error("public package depends on private sidecar");
+}
+if (publishable.sort().join(",") !== [...packages].sort().join(",")) throw new Error("public publish set changed");
+const sidecar = JSON.parse(await readFile(join(workspace, "packages/sidecar/package.json"), "utf8"));
+if (sidecar.private !== true) throw new Error("sidecar must remain private");
+execFileSync("npm", ["run", "build"], {cwd: workspace, stdio: "pipe"});
+await access(join(workspace, "packages/sidecar/dist/cli.js"));
+const sidecarSmoke = spawnSync(process.execPath, [join(workspace, "packages/sidecar/dist/cli.js"), "unknown-command"], {cwd: workspace, encoding: "utf8", timeout: 5000});
+if (sidecarSmoke.error || sidecarSmoke.status !== 1 || sidecarSmoke.stderr !== "" || sidecarSmoke.stdout.trim() !== '{"code":"COMMAND_FAILED"}') throw new Error("private sidecar unknown-command did not fail closed");
+console.log("private sidecar compiled fail-closed executable passed");
 const staging = await mkdtemp(join(tmpdir(), "agent-integrity-pack-"));
 
 function assertPayload(name, manifest) {

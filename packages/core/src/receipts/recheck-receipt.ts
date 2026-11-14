@@ -156,30 +156,59 @@ export interface RecheckTrustedReceiptOptions extends RecheckReceiptOptions {
   readonly receiptStore?: FileReceiptStore;
 }
 
+export type ValidateTrustedReceiptOptions = RecheckReceiptOptions & {
+  readonly context: TrustedVerificationContext;
+};
+
+async function validateAdmittedTrustedReceipt(
+  options: ValidateTrustedReceiptOptions,
+  receipt: AlphaIntegrityReceipt,
+): Promise<ReceiptRecheckResult> {
+  const baseline = recheckUnsafe(options, receipt);
+  const live = await verifyTrustedEnvelope(options.envelope, options.context);
+  const findings = [...baseline.findings];
+  if (live.status !== "PASS") findings.push(...live.findings);
+  if (live.envelopeDigest === undefined) {
+    findings.push(blocked("receipt.live_source_check_failed", "Trusted source verification did not produce an envelope digest"));
+  }
+  return {
+    ...calculateOutcome(findings),
+    ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }),
+    ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }),
+  };
+}
+
+/** Validates a receipt against freshly recollected trusted source bytes without consuming it. */
+export async function validateTrustedReceipt(options: ValidateTrustedReceiptOptions): Promise<ReceiptRecheckResult> {
+  try {
+    const receipt = admittedReceipt(options);
+    return await validateAdmittedTrustedReceipt(options, receipt);
+  } catch (error) {
+    return checkerFailure(error);
+  }
+}
+
 /** Rechecks the receipt against freshly recollected source bytes. */
 export async function recheckTrustedReceipt(options: RecheckTrustedReceiptOptions): Promise<ReceiptRecheckResult> {
   try {
     const receipt = admittedReceipt(options);
-    const baseline = recheckUnsafe(options, receipt);
-    const live = await verifyTrustedEnvelope(options.envelope, options.context);
-    const findings = [...baseline.findings];
-    if (live.status !== "PASS") findings.push(...live.findings);
-    if (live.envelopeDigest === undefined) {
-      findings.push(blocked("receipt.live_source_check_failed", "Trusted source verification did not produce an envelope digest"));
-    }
-    const result = {
-      ...calculateOutcome(findings),
-      ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }),
-      ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }),
-    };
+    const result = await validateAdmittedTrustedReceipt(options, receipt);
     if (result.status === "PASS") {
       if (options.receiptStore === undefined) {
-        return { ...calculateOutcome([...findings, blocked("receipt.store_required", "A trusted receipt store is required for single-use consumption")]), ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }), ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }) };
+        return {
+          ...calculateOutcome([...result.findings, blocked("receipt.store_required", "A trusted receipt store is required for single-use consumption")]),
+          ...(result.receiptDigest === undefined ? {} : { receiptDigest: result.receiptDigest }),
+          ...(result.envelopeDigest === undefined ? {} : { envelopeDigest: result.envelopeDigest }),
+        };
       }
       try {
         await options.receiptStore.consume(receipt, options.now);
       } catch (error) {
-        return { ...calculateOutcome([...findings, blocked("receipt.replayed", error instanceof Error ? error.message : "Receipt consumption failed")]), ...(baseline.receiptDigest === undefined ? {} : { receiptDigest: baseline.receiptDigest }), ...(live.envelopeDigest === undefined ? {} : { envelopeDigest: live.envelopeDigest }) };
+        return {
+          ...calculateOutcome([...result.findings, blocked("receipt.replayed", error instanceof Error ? error.message : "Receipt consumption failed")]),
+          ...(result.receiptDigest === undefined ? {} : { receiptDigest: result.receiptDigest }),
+          ...(result.envelopeDigest === undefined ? {} : { envelopeDigest: result.envelopeDigest }),
+        };
       }
     }
     return result;
